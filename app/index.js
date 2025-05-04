@@ -8,6 +8,16 @@ import options from './options.js';
 
 const sockets = {};
 
+const c = data => {
+	debug('Backend requested connection close', data);
+	const socket = sockets[data.a.s];
+	socket.close();
+};
+
+const handlers = {
+	c
+};
+
 const worker = async (workerId) => {
 	const webSocketServer = new WebSocketServer({ 
 		host: '0.0.0.0',
@@ -41,7 +51,17 @@ const worker = async (workerId) => {
 
 		options.pubSub.subscribe(data => {
 			const socket = sockets[data.a.s];
-			socket.send(data.m);
+			if(data.m) {
+				socket.send(data.m);
+			}
+			if(data.c) {
+				const handler = handlers[data.c];
+				if(handler) {
+					handler(data);
+				} else {
+					debug('Unknown backend command:', data.c);
+				}
+			}
 		});
 	});
 }

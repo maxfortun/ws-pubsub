@@ -1,5 +1,5 @@
 import Debug from 'debug';
-const debug = Debug('ws-pubsub:lib:RedisPubSub');
+const debug = Debug('ws-pubsub:RedisPubSub');
 
 import crypto			from 'crypto';
 import { createClient }	from "redis";
