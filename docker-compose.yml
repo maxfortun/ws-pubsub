@@ -1,0 +1,24 @@
+version: "3.8"
+services:
+  ws-pubsub:
+    container_name: ws-pubsub-${tag:-latest}
+    image: ws-pubsub:${tag:-latest}
+    build:
+      context: .
+      args:
+        DOCKER_BUILDKIT: 1
+        GIT_CREDENTIALS: $GIT_CREDENTIALS
+    working_dir: /usr/src/app
+    environment:
+      PORT: 3003
+      DEBUG: "*"
+    restart: unless-stopped
+    ports:
+      - '3002/tcp'
+    volumes:
+      - ${EZSSO_HOME}/rc/secrets/ws-pubsub/.env.local:/usr/src/app/.env.local
+    command: [ "npm", "start" ]
+networks:
+  default:
+    name: dpsrv
+    external: true
