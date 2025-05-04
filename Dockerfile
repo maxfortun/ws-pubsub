@@ -12,6 +12,5 @@ RUN <<_EOT_
 	git config --global credential.helper store
 	cd /usr/src/app/
 	npm i
-	npm run bundle
 	rm $HOME/.git-credentials
 _EOT_
