@@ -6,7 +6,7 @@ dotenv.config({ path: '.env.local' })
 
 import RedisPubSub from './RedisPubSub.js';
 
-const pubSub = RedisPubSub({
+const pubSub = new RedisPubSub({
 	redis_host: process.env.REDIS_HOST,
 	redis_password: process.env.REDIS_PASSWORD,
 	redis_req_channel_name: 'req_',
