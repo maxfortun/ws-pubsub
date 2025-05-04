@@ -29,11 +29,11 @@ export default function RedisPubSub(options) {
 	pub.connect();
 	sub.connect();
 
-	this.publish = async (dest, data) => {
+	this.publish = async (realm, data) => {
 		data.a.t = res_topic;
 		
 		const message = JSON.stringify(data);
-		const req_topic = `${options.redis_req_channel_prefix}${dest}`;
+		const req_topic = `${options.redis_req_channel_prefix}${realm}`;
 		return pub.publish(req_topic, message);
 	};
 
