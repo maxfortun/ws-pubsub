@@ -10,7 +10,6 @@ services:
         GIT_CREDENTIALS: $GIT_CREDENTIALS
     working_dir: /usr/src/app
     environment:
-      PORT: 3003
       DEBUG: "*"
     restart: unless-stopped
     ports:
