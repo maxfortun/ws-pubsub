@@ -6,7 +6,9 @@ import { createClient }	from "redis";
 
 export default function RedisPubSub(options) {
 	const uuid = crypto.randomUUID();
-	const reply_topic = `${options.redis_res_channel_prefix}$uuid`;
+	const channel = 'default';
+	const req_topic = `${options.redis_req_channel_prefix}${channel}`;
+	const res_topic = `${options.redis_res_channel_prefix}${channel}_${uuid}`;
 	const callbacks = [];
 
 	const pub = createClient({
@@ -28,9 +30,9 @@ export default function RedisPubSub(options) {
 	sub.connect();
 
 	this.publish = async data => {
-		data.a.t = reply_topic;
+		data.a.t = res_topic;
 		const message = JSON.stringify(data);
-		return pub.publish(options.redis_req_channel_name, message);
+		return pub.publish(options.redis_req_channel_prefix, message);
 	};
 
 	this.subscribe = async callback => {
@@ -43,6 +45,6 @@ export default function RedisPubSub(options) {
 		callbacks.forEach(callback => callback(data));
 	});
 
-	sub.subscribe(reply_topic);
+	sub.subscribe(res_topic);
 }
 
