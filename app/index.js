@@ -46,10 +46,15 @@ const worker = async (workerId) => {
 		socket.setNoDelay(true);
 		sockets[uuid] = socket;
 
+		// Protocol needs to have a dest specified. We'd need to validate it
+		const protocol = socket.protocol;
+		debug(`Protocol: ${protocol}`);
+		const dest = 'default';
+
 		socket.on('close', event => {
 			debug('close', event);
 			delete sockets[uuid];
-			options.pubSub.publish(rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'c' }));
+			options.pubSub.publish(dest, rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'c' }));
 		});
 
 		socket.on('error', event => {
@@ -58,7 +63,7 @@ const worker = async (workerId) => {
 
 		// Maybe add crypto key to socket addr to prevent spoofing?
 		socket.on('message', async message => {
-			options.pubSub.publish(rmEmptyValues({ a: { s: uuid }, md: socket.meta, m: message }));
+			options.pubSub.publish(dest, rmEmptyValues({ a: { s: uuid }, md: socket.meta, m: message }));
 		});
 
 		options.pubSub.subscribe(data => {
@@ -76,7 +81,7 @@ const worker = async (workerId) => {
 			}
 		});
 
-		options.pubSub.publish(rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'o' }));
+		options.pubSub.publish(dest, rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'o' }));
 	});
 }
 
