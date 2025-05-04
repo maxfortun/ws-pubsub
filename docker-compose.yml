@@ -13,7 +13,7 @@ services:
       DEBUG: "*"
     restart: unless-stopped
     ports:
-      - '3002/tcp'
+      - '3000/tcp'
     volumes:
       - ${EZSSO_HOME}/rc/secrets/ws-pubsub/.env.local:/usr/src/app/.env.local
     command: [ "npm", "start" ]
