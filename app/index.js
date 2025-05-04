@@ -4,6 +4,8 @@ const debug = Debug('ws-pubsub:main');
 import cluster from 'node:cluster';
 import { WebSocketServer }	from 'ws';
 
+import { rmEmptyValues } from './utils.js';
+
 import options from './options.js';
 
 const sockets = {};
@@ -12,6 +14,15 @@ const c = data => {
 	debug('Backend requested connection close', data);
 	const socket = sockets[data.a.s];
 	socket.close();
+};
+
+const m = data => {
+	debug('Backend assigned metadata', data);
+	const socket = sockets[data.a.s];
+	if(!socket.meta) {
+		socket.meta = {};
+	}
+	Object.assign(socket.meta, data.md); 
 };
 
 const handlers = {
@@ -38,6 +49,7 @@ const worker = async (workerId) => {
 		socket.on('close', event => {
 			debug('close', event);
 			delete sockets[uuid];
+			options.pubSub.publish(rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'c' }));
 		});
 
 		socket.on('error', event => {
@@ -46,7 +58,7 @@ const worker = async (workerId) => {
 
 		// Maybe add crypto key to socket addr to prevent spoofing?
 		socket.on('message', async message => {
-			options.pubSub.publish({ a: { s: uuid }, m: message });
+			options.pubSub.publish(rmEmptyValues({ a: { s: uuid }, md: socket.meta, m: message }));
 		});
 
 		options.pubSub.subscribe(data => {
@@ -63,6 +75,8 @@ const worker = async (workerId) => {
 				}
 			}
 		});
+
+		options.pubSub.publish(rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'o' }));
 	});
 }
 

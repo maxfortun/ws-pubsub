@@ -31,6 +31,7 @@ export default function RedisPubSub(options) {
 
 	this.publish = async data => {
 		data.a.t = res_topic;
+		
 		const message = JSON.stringify(data);
 		return pub.publish(options.redis_req_channel_prefix, message);
 	};
