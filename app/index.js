@@ -4,7 +4,7 @@ const debug = Debug('ws-pubsub:main');
 import cluster from 'node:cluster';
 import { WebSocketServer }	from 'ws';
 
-import { rmEmptyValues } from './utils.js';
+import { atob, rmEmptyValues } from './utils.js';
 
 import options from './options.js';
 
@@ -30,23 +30,51 @@ const handlers = {
 };
 
 const worker = async (workerId) => {
+	const host = '0.0.0.0';
+	const port = process.env.PORT || 3000;
+	const path = options.ws_path;
+
 	const webSocketServer = new WebSocketServer({ 
-		host: '0.0.0.0',
-		port: process.env.PORT || 3000,
-		path: options.ws_path
+		host,
+		port,
+		path
 	}, () => {
-		debug('Started');
+		debug(workerId, 'Started WebSocket worker on', host, port, path);
 	});
 
 	webSocketServer.on('connection', (socket, req) => {
-		debug(`New connection`);
 		const uuid = crypto.randomUUID();
+		debug(workerId, uuid, 'New connection');
 
 		sockets[uuid] = socket;
 
 		// Protocol needs to have a realm specified. We'd need to validate it
-		const protocol = socket.protocol;
-		debug(`Protocol: ${protocol}`);
+		const rawProtocols = socket.protocol.split(/\s*[,;]\s*/);
+		debug(workerId, uuid, 'raw protocols', rawProtocols);
+
+		socket.custom = {
+			protocols: [],
+			headers: {}
+		};
+
+		rawProtocols.forEach(protocol => {
+			try {
+				const decoded = atob(protocol);
+				debug(workerId, uuid, 'protocol decoded', decoded);
+				const match = decoded.match(/^([^:]+):\s*(.*)$/);
+				if(!match) {
+					socket.custom.protocols.push(protocol);
+					return;
+				}
+				debug(workerId, uuid, 'protocol match', match);
+				socket.custom.headers[match[1]] = match[2];
+			} catch(e) {
+				debug(workerId, uuid, 'protocol error', protocol, e);
+			}
+		});
+
+		debug(workerId, uuid, 'custom', socket.custom);
+
 		const realm = 'dlq';
 
 		socket.on('close', event => {

@@ -12,6 +12,16 @@ export function rmEmptyValues(obj) {
   return obj;
 }
 
+export function btoa(data) {
+	return Buffer.from(data).toString('base64');
+};
+
+export function  atob(base64) {
+	return Buffer.from(base64, 'base64').toString('binary');
+}
+
 export default {
-	rmEmptyValues
+	rmEmptyValues,
+	atob,
+	btoa
 };
