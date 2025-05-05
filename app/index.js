@@ -77,7 +77,7 @@ const worker = async (workerId) => {
 
 		debug(workerId, uuid, 'custom', socket.custom);
 
-		const realm = 'dlq';
+		const realm = socket.custom.headers['ws-realm'] || 'dlq';
 
 		socket.on('close', event => {
 			debug('close', event);
