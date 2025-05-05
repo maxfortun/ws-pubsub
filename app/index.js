@@ -42,8 +42,6 @@ const worker = async (workerId) => {
 		debug(`New connection`);
 		const uuid = crypto.randomUUID();
 
-		// may also need to set TcpAckFrequency to 1 
-		socket.setNoDelay(true);
 		sockets[uuid] = socket;
 
 		// Protocol needs to have a realm specified. We'd need to validate it
