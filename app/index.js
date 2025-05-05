@@ -80,17 +80,19 @@ const worker = async (workerId) => {
 		const realm = socket.custom.headers['ws-realm'] || 'dlq';
 
 		socket.on('close', event => {
-			debug('close', event);
+			debug(workerId, uuid, 'close', event);
 			delete sockets[uuid];
 			options.pubSub.publish(realm, rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'c' }));
 		});
 
 		socket.on('error', event => {
-			debug('error', event);
+			debug(workerId, uuid, 'error', event);
 		});
 
 		// Maybe add crypto key to socket addr to prevent spoofing?
-		socket.on('message', async message => {
+		socket.on('message', event => {
+			const message = event.toString();
+			debug(workerId, uuid, 'message', message);
 			options.pubSub.publish(realm, rmEmptyValues({ a: { s: uuid }, md: socket.meta, m: message }));
 		});
 
