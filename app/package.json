@@ -1,8 +1,7 @@
 {
   "type": "module",
   "scripts": {
-    "start": "nodemon index.js",
-    "bundle": "npx esbuild --platform=browser --bundle --sourcemap --loader:.js=jsx ./src/index.js --outfile=./static/js/App.js"
+    "start": "nodemon cluster.js"
   },
   "dependencies": {
     "@ezsso/express-client": "git+https://github.com/ezsso/express-client.git",

@@ -41,12 +41,9 @@ export default function RedisPubSub(options) {
 		callbacks.push(callback);
 	};
 
-	sub.on('message', async (channel, message) => {
-		debug(`RedisPubSub message from ${channel}: ${message}`);
+	sub.subscribe(res_topic, message => {
 		const data = JSON.parse(message);
 		callbacks.forEach(callback => callback(data));
 	});
-
-	sub.subscribe(res_topic);
 }
 
