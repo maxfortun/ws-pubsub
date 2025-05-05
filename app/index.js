@@ -48,30 +48,32 @@ const worker = async (workerId) => {
 
 		sockets[uuid] = socket;
 
-		// Protocol needs to have a realm specified. We'd need to validate it
-		const rawProtocols = socket.protocol.split(/\s*[,;]\s*/);
-		debug(workerId, uuid, 'raw protocols', rawProtocols);
-
 		socket.custom = {
 			protocols: [],
 			headers: {}
 		};
 
-		rawProtocols.forEach(protocol => {
-			try {
-				const decoded = atob(protocol);
-				debug(workerId, uuid, 'protocol decoded', decoded);
-				const match = decoded.match(/^([^:]+):\s*(.*)$/);
-				if(!match) {
-					socket.custom.protocols.push(protocol);
-					return;
+		if(socket.protocol) {
+			// Protocol needs to have a realm specified. We'd need to validate it
+			const rawProtocols = socket.protocol.split(/\s*[,;]\s*/);
+			// debug(workerId, uuid, 'raw protocols', rawProtocols);
+
+			rawProtocols.forEach(protocol => {
+				try {
+					const decoded = atob(protocol);
+					// debug(workerId, uuid, 'protocol decoded', decoded);
+					const match = decoded.match(/^([^:]+):\s*(.*)$/);
+					if(!match) {
+						socket.custom.protocols.push(protocol);
+						return;
+					}
+					// debug(workerId, uuid, 'protocol match', match);
+					socket.custom.headers[match[1]] = match[2];
+				} catch(e) {
+					debug(workerId, uuid, 'protocol error', protocol, e);
 				}
-				debug(workerId, uuid, 'protocol match', match);
-				socket.custom.headers[match[1]] = match[2];
-			} catch(e) {
-				debug(workerId, uuid, 'protocol error', protocol, e);
-			}
-		});
+			});
+		}
 
 		debug(workerId, uuid, 'custom', socket.custom);
 
