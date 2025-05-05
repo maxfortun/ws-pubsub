@@ -10,7 +10,7 @@ services:
         GIT_CREDENTIALS: $GIT_CREDENTIALS
     working_dir: /usr/src/app
     environment:
-      DEBUG: "*"
+      DEBUG: "*,-nodemon*"
     restart: unless-stopped
     ports:
       - '3000/tcp'
