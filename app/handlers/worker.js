@@ -7,9 +7,29 @@ import { atob, rmEmptyValues } from './utils.js';
 
 import options from './options.js';
 
-import handlers from './handlers/index.js';
-
 const sockets = {};
+
+// socket close
+const sc = data => {
+	debug('Backend requested connection close', data);
+	const socket = sockets[data.a.s];
+	socket.close();
+};
+
+// metadata set
+const mds = data => {
+	debug('Backend set metadata', data);
+	const socket = sockets[data.a.s];
+	if(!socket.meta) {
+		socket.meta = {};
+	}
+	Object.assign(socket.meta, data.md); 
+};
+
+const handlers = {
+	sc,
+	mds
+};
 
 export default function worker(workerId) {
 	const host = '0.0.0.0';
@@ -73,7 +93,7 @@ export default function worker(workerId) {
 			publish({
 				a: { s: uuid },
 				md: socket.meta,
-				sc: 'c'
+				c: 'c'
 			});
 		});
 
@@ -92,20 +112,16 @@ export default function worker(workerId) {
 
 		options.pubSub.subscribe(data => {
 			const socket = sockets[data.a.s];
-
-			// data.m == message
 			if(data.m) {
 				debug(workerId, data.a.s, 'sub', data);
 				socket.send(data.m);
 			}
-
-			if(data.sc) {
-				// data.sc == socket control
-				const handler = handlers[data.sc];
+			if(data.c) {
+				const handler = handlers[data.c];
 				if(handler) {
-					handler({socket, data});
+					handler(data);
 				} else {
-					debug(workerId, data.a.s, 'Unknown socket control:', data.sc);
+					debug(workerId, data.a.s, 'Unknown backend command:', data.c);
 				}
 			}
 		});
@@ -113,7 +129,7 @@ export default function worker(workerId) {
 		publish({
 			a: { s: uuid },
 			md: socket.meta,
-			sc: 'o'
+			c: 'o'
 		});
 	});
 }
