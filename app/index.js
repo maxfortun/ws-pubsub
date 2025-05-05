@@ -79,10 +79,20 @@ const worker = async (workerId) => {
 
 		const realm = socket.custom.headers['ws-realm'] || 'dlq';
 
+		const publish = message => {
+			const sanitized = rmEmptyValues(message);
+			debug(workerId, uuid, 'pub', sanitized);
+			options.pubSub.publish(realm, sanitized);
+		};
+
 		socket.on('close', event => {
 			debug(workerId, uuid, 'close', event);
 			delete sockets[uuid];
-			options.pubSub.publish(realm, rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'c' }));
+			publish({
+				a: { s: uuid },
+				md: socket.meta,
+				c: 'c'
+			});
 		});
 
 		socket.on('error', event => {
@@ -91,14 +101,17 @@ const worker = async (workerId) => {
 
 		// Maybe add crypto key to socket addr to prevent spoofing?
 		socket.on('message', event => {
-			const message = event.toString();
-			debug(workerId, uuid, 'message', message);
-			options.pubSub.publish(realm, rmEmptyValues({ a: { s: uuid }, md: socket.meta, m: message }));
+			publish({
+				a: { s: uuid },
+				md: socket.meta,
+				m: event.toString()
+			});
 		});
 
 		options.pubSub.subscribe(data => {
 			const socket = sockets[data.a.s];
 			if(data.m) {
+				debug(workerId, data.a.s, 'sub', data);
 				socket.send(data.m);
 			}
 			if(data.c) {
@@ -106,12 +119,16 @@ const worker = async (workerId) => {
 				if(handler) {
 					handler(data);
 				} else {
-					debug('Unknown backend command:', data.c);
+					debug(workerId, data.a.s, 'Unknown backend command:', data.c);
 				}
 			}
 		});
 
-		options.pubSub.publish(realm, rmEmptyValues({ a: { s: uuid }, md: socket.meta, c: 'o' }));
+		publish({
+			a: { s: uuid },
+			md: socket.meta,
+			c: 'o'
+		});
 	});
 }
 

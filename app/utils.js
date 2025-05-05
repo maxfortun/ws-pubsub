@@ -1,6 +1,6 @@
 export function rmEmptyValues(obj) {
   for (const key in obj) {
-    if (obj[key] === null) {
+    if (obj[key] == null) {
       delete obj[key];
     } else if (typeof obj[key] === 'object') {
       rmEmptyValues(obj[key]); // Recursively check nested objects
