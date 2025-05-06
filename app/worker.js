@@ -103,8 +103,7 @@ export default function worker(workerId) {
 		// data.m == message
 		if(data.m) {
 			debug(workerId, data.a.s, 'sub', data);
-			const message = stringify(data.m);
-			socket.send(message);
+			socket.send(data.m);
 		}
 
 		if(data.sc) {
