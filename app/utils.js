@@ -12,7 +12,7 @@ export function rmEmptyValues(obj) {
   return obj;
 }
 
-const stringify = (obj, space) => {
+export function stringify(obj, space) {
 	const seen = new WeakSet();
 	return JSON.stringify(obj, (key, value) => {
 		if (typeof value === "object" && value !== null) {
@@ -23,11 +23,11 @@ const stringify = (obj, space) => {
 		}
 		return value;
 	}, space);
-};
+}
 
 export function btoa(data) {
 	return Buffer.from(data).toString('base64');
-};
+}
 
 export function  atob(base64) {
 	return Buffer.from(base64, 'base64').toString('binary');
