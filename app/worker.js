@@ -90,32 +90,32 @@ export default function worker(workerId) {
 			});
 		});
 
-		options.pubSub.subscribe(data => {
-			const socket = sockets[data.a.s];
-
-			// data.m == message
-			if(data.m) {
-				debug(workerId, data.a.s, 'sub', data);
-				const message = stringify(data.m);
-				socket.send(message);
-			}
-
-			if(data.sc) {
-				// data.sc == socket control
-				const handler = handlers[data.sc];
-				if(handler) {
-					handler({socket, data});
-				} else {
-					debug(workerId, data.a.s, 'Unknown socket control:', data.sc);
-				}
-			}
-		});
-
 		publish({
 			a: { s: uuid },
 			md: socket.meta,
 			sc: 'o'
 		});
+	});
+
+	options.pubSub.subscribe(data => {
+		const socket = sockets[data.a.s];
+
+		// data.m == message
+		if(data.m) {
+			debug(workerId, data.a.s, 'sub', data);
+			const message = stringify(data.m);
+			socket.send(message);
+		}
+
+		if(data.sc) {
+			// data.sc == socket control
+			const handler = handlers[data.sc];
+			if(handler) {
+				handler({socket, data});
+			} else {
+				debug(workerId, data.a.s, 'Unknown socket control:', data.sc);
+			}
+		}
 	});
 }
 
