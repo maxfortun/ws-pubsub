@@ -26,9 +26,9 @@ export default function worker(workerId) {
 
 	webSocketServer.on('connection', (socket, req) => {
 		const uuid = crypto.randomUUID();
-		debug(workerId, uuid, 'New connection');
-
 		sockets[uuid] = socket;
+
+		debug(workerId, uuid, 'open', Object.keys(sockets).length);
 
 		socket.custom = {
 			protocols: [],
@@ -68,8 +68,8 @@ export default function worker(workerId) {
 		};
 
 		socket.on('close', event => {
-			debug(workerId, uuid, 'close', event);
 			delete sockets[uuid];
+			debug(workerId, uuid, 'close', Object.keys(sockets).length, event);
 			publish({
 				a: { s: uuid },
 				md: socket.meta,
