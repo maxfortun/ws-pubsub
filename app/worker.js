@@ -96,7 +96,8 @@ export default function worker(workerId) {
 			// data.m == message
 			if(data.m) {
 				debug(workerId, data.a.s, 'sub', data);
-				socket.send(data.m);
+				const message = JSON.stringify(data.m);
+				socket.send(message);
 			}
 
 			if(data.sc) {
