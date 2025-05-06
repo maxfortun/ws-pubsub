@@ -2,7 +2,9 @@ import Debug from 'debug';
 const debug = Debug('ws-pubsub:RedisPubSub');
 
 import crypto			from 'crypto';
-import { createClient }	from "redis";
+import { createClient }	from 'redis';
+
+import { stringify }	from './utils.js';
 
 export default function RedisPubSub(options) {
 	const uuid = crypto.randomUUID();
@@ -32,7 +34,7 @@ export default function RedisPubSub(options) {
 	this.publish = async (realm, data) => {
 		data.a.t = res_topic;
 		
-		const message = JSON.stringify(data);
+		const message = stringify(data);
 		const req_topic = `${options.redis_req_channel_prefix}${realm}`;
 		return pub.publish(req_topic, message);
 	};

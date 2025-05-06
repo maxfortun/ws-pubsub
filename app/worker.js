@@ -3,7 +3,7 @@ const debug = Debug('ws-pubsub:main');
 
 import { WebSocketServer }	from 'ws';
 
-import { atob, rmEmptyValues } from './utils.js';
+import { atob, rmEmptyValues, stringify } from './utils.js';
 
 import options from './options.js';
 
@@ -96,7 +96,7 @@ export default function worker(workerId) {
 			// data.m == message
 			if(data.m) {
 				debug(workerId, data.a.s, 'sub', data);
-				const message = JSON.stringify(data.m);
+				const message = stringify(data.m);
 				socket.send(message);
 			}
 
