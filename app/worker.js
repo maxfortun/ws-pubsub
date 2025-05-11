@@ -98,7 +98,10 @@ export default function worker(workerId) {
 	});
 
 	options.pubSub.subscribe(data => {
-		const socket = sockets[data.a.s];
+		const socket = sockets[data?.a?.s];
+		if(!socket) {
+			return;
+		}
 
 		// data.m == message
 		if(data.m) {
