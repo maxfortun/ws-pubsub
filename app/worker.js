@@ -3,7 +3,7 @@ const debug = Debug('ws-pubsub:main');
 
 import { WebSocketServer }	from 'ws';
 
-import { atob, rmEmptyValues, stringify } from './utils.js';
+import { atob, rmEmptyValues } from './utils.js';
 
 import options from './options.js';
 
@@ -24,7 +24,7 @@ export default function worker(workerId) {
 		debug(workerId, 'Started WebSocket worker on', host, port, path);
 	});
 
-	webSocketServer.on('connection', (socket, req) => {
+	webSocketServer.on('connection', socket => {
 		const uuid = crypto.randomUUID();
 		sockets[uuid] = socket;
 
@@ -71,9 +71,9 @@ export default function worker(workerId) {
 			delete sockets[uuid];
 			debug(workerId, uuid, 'close', Object.keys(sockets).length, event);
 			publish({
-				a: { s: uuid },
-				md: socket.meta,
-				sc: 'c'
+				addr: { ws: uuid },
+				meta: socket.meta,
+				wsctl: 'close'
 			});
 		});
 
@@ -84,38 +84,37 @@ export default function worker(workerId) {
 		// Maybe add crypto key to socket addr to prevent spoofing?
 		socket.on('message', event => {
 			publish({
-				a: { s: uuid },
-				md: socket.meta,
-				m: event.toString()
+				addr: { ws: uuid },
+				meta: socket.meta,
+				message: event.toString()
 			});
 		});
 
 		publish({
-			a: { s: uuid },
-			md: socket.meta,
-			sc: 'o'
+			addr: { ws: uuid },
+			meta: socket.meta,
+			wsctl: 'open'
 		});
 	});
 
 	options.pubSub.subscribe(data => {
-		const socket = sockets[data?.a?.s];
+		const socket = sockets[data?.addr?.ws];
 		if(!socket) {
 			return;
 		}
 
 		// data.m == message
-		if(data.m) {
-			debug(workerId, data.a.s, 'sub', data);
-			socket.send(data.m);
+		if(data.meta) {
+			debug(workerId, data.addr.ws, 'sub', data);
+			socket.send(data.meta);
 		}
 
-		if(data.sc) {
-			// data.sc == socket control
-			const handler = handlers[data.sc];
+		if(data.wsctl) {
+			const handler = handlers[data.wsctl];
 			if(handler) {
 				handler({socket, data});
 			} else {
-				debug(workerId, data.a.s, 'Unknown socket control:', data.sc);
+				debug(workerId, data.addr.wsctl, 'Unknown socket control:', data.wsctl);
 			}
 		}
 	});

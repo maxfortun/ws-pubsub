@@ -1,6 +1,3 @@
-import Debug from "debug";
-const debug = Debug("ws-pubsub:options");
-
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' })
 

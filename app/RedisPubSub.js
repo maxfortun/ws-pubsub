@@ -1,6 +1,3 @@
-import Debug from 'debug';
-const debug = Debug('ws-pubsub:RedisPubSub');
-
 import crypto			from 'crypto';
 import { createClient }	from 'redis';
 
@@ -32,7 +29,7 @@ export default function RedisPubSub(options) {
 	sub.connect();
 
 	this.publish = async (realm, data) => {
-		data.a.t = res_topic;
+		data.addr.topic = res_topic;
 		
 		const message = stringify(data);
 		const req_topic = `${options.redis_req_channel_prefix}${realm}`;
