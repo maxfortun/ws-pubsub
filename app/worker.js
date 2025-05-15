@@ -104,9 +104,9 @@ export default function worker(workerId) {
 		}
 
 		// data.m == message
-		if(data.meta) {
+		if(data.message) {
 			debug(workerId, data.addr.ws, 'sub', data);
-			socket.send(data.meta);
+			socket.send(data.message);
 		}
 
 		if(data.wsctl) {
