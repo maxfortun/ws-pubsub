@@ -1,14 +1,16 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' })
 
-import RedisPubSub from './RedisPubSub.js';
+import RedisStreams from './pubsub/RedisStreams.js';
 
-const pubSub = new RedisPubSub({
+const pubSub = new RedisStreams({
 	redis_host: process.env.REDIS_HOST,
 	redis_port: process.env.REDIS_PORT,
 	redis_password: process.env.REDIS_PASSWORD,
 	redis_req_channel_prefix: 'ws.req.',
-	redis_res_channel_prefix: 'ws.res.'
+	redis_res_channel_prefix: 'ws.res.',
+	group: 'ws-pubsub',
+	consumer: 'ws-pubsub',
 });
 
 export default {
