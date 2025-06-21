@@ -63,7 +63,6 @@ export default function worker(workerId) {
 
 		const publish = message => {
 			const sanitized = rmEmptyValues(message);
-			debug(workerId, uuid, 'pub', sanitized);
 			options.pubSub.publish(realm, sanitized);
 		};
 

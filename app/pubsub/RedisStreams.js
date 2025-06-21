@@ -7,24 +7,38 @@ redis.debug_mode = true;
 export default function RedisStreams(options) {
 	const {group, consumer} = options;
 
-    const uuid = crypto.randomUUID();
+	const uuid = crypto.randomUUID();
 
-    const res_stream = `${options.redis_res_channel_prefix}${uuid}`;
+	const res_stream = `${options.redis_res_channel_prefix}${uuid}`;
 
-    this.redis = createClient({
-        socket: {
-            host:       options.redis_host || 'localhost',
-            port:       options.redis_port || 6379,
-            family:     options.redis_family || 4
-        },
-        password:   options.redis_password,
-        retry_strategy: (options) => {
-            // Reconnect after a delay based on the attempt number
-            return Math.min(options.attempt * 100, 3000);
-        }
-    });
+	this.redis = createClient({
+		socket: {
+			host: options.redis_host || 'localhost',
+			port: options.redis_port || 6379,
+			family: options.redis_family || 4
+		},
+		password:   options.redis_password,
+		retry_strategy: (options) => {
+			// Reconnect after a delay based on the attempt number
+			return Math.min(options.attempt * 100, 3000);
+		}
+	});
 
 	this.redis.connect();
+
+	this.publish = async (realm, data) => {
+		const stream = `${options.redis_req_channel_prefix}${realm}`;
+		data.addr.topic = res_stream;
+		debug('pub', stream, data); 
+		const message = JSON.stringify(data);
+		return this.redis.xAdd(stream, '*', message);
+	};
+
+	const callbacks = [];
+
+	this.subscribe = async callback => {
+		callbacks.push(callback);
+	};
 
 	const streamGroups = {};
 
@@ -45,57 +59,43 @@ export default function RedisStreams(options) {
 		} catch (err) {
 			if (err.message.includes('BUSYGROUP')) {
 				streamGroups[stream].groups[group] = true;
-				debug('Consumer group already exists');
+				debug('Consumer group already exists', stream, group);
 			} else {
 				throw err;
 			}
 		}
 	};
 
-    this.publish = async (realm, data) => {
-        const stream = `${options.redis_req_channel_prefix}${realm}`;
-		debug('pub', stream, data); 
+	this.readGroup = async (stream, callback) => {
+		const streams = await this.redis.xReadGroup(group, consumer, [ { key: stream, id: '>' } ], { COUNT: 1, BLOCK: 5000 });
 
-        data.addr.topic = res_stream;
-		const message = JSON.stringify(data);
+		if (!streams || !streams.length) {
+			return;
+		}
 
-		return this.redis.xAdd(stream, '*', message);
+		for (const _stream of streams) {
+			for(const { id, message } of _stream.messages) {
+				const data = JSON.parse(message.message);
+				debug('sub', stream, data);
+				callback(data);
+				await this.redis.xAck(stream, group, id);
+			}
+		}
 	};
 
-    const callbacks = [];
+	this._subscribe = async (stream, callback) => {
+		await this.initStreamGroup(stream, group);
 
-    this.subscribe = async callback => {
-        callbacks.push(callback);
-    };
-
-	const subscribe = async () => {
-		await this.initStreamGroup(res_stream, group);
-
-		this.redis.xReadGroup(group, consumer, { key: res_stream, id: '>' }, 1, async (err, streams) => {
-			if (err) {
-				debug('Error reading from stream:', err);
-				return;
+		debug('subscribe:', stream, group, consumer);
+		while(true) {
+			try {
+				await this.readGroup(stream, callback);
+			} catch(e) {
+				debug('Error reading stream:', stream, group, consumer, e);
 			}
-
-			if (streams && streams.length > 0) {
-				const messages = streams[0].messages;
-				for (const message of messages) {
-					const id = message.id;
-					const data = JSON.parse(message.message);
-					debug('Received message:', id, data);
-					await Promise.all(callbacks.map(callback => callback(data)));
-
-					// Acknowledge message
-					this.redis.xAck(res_stream, group, id, (err) => {
-						if (err) {
-							debug('Error acknowledging message:', err);
-						}
-					});
-				}
-			}
-		});
+		}
 	};
 
-	subscribe();
+	this._subscribe(res_stream, data => callbacks.forEach(callback => callback(data)));
 }
 
