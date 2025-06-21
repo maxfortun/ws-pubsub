@@ -31,7 +31,7 @@ export default function RedisStreams(options) {
 		data.addr.topic = res_stream;
 		debug('pub', stream, data); 
 		const message = JSON.stringify(data);
-		return this.redis.xAdd(stream, '*', message);
+		return this.redis.xAdd(stream, '*', { message });
 	};
 
 	const callbacks = [];
@@ -67,7 +67,7 @@ export default function RedisStreams(options) {
 	};
 
 	this.readGroup = async (stream, callback) => {
-		const streams = await this.redis.xReadGroup(group, consumer, [ { key: stream, id: '>' } ], { COUNT: 1, BLOCK: 5000 });
+		const streams = await this.redis.xReadGroup(group, consumer, [ { key: stream, id: '>' } ], { COUNT: 1 });
 
 		if (!streams || !streams.length) {
 			return;
