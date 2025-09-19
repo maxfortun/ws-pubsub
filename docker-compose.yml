@@ -2,7 +2,7 @@ version: "3.8"
 services:
   ws-pubsub:
     container_name: ws-pubsub-${tag:-latest}
-    image: ws-pubsub:${tag:-latest}
+    image: ${repo:-ws-pubsub}:${tag:-latest}
     build:
       context: .
       args:
