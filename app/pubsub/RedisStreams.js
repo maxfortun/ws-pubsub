@@ -1,7 +1,7 @@
 import Debug from 'debug';
 const debug = Debug('anon-chat-pubsub:RedisStreams');
 
-import redis, { createClient } from 'redis';
+import redis, { createClient, createSentinel } from 'redis';
 redis.debug_mode = true;
 
 export default function RedisStreams(options) {
@@ -13,13 +13,10 @@ export default function RedisStreams(options) {
 
     // { host: SENTINEL_SERVICE, port: SENTINEL_PORT }
 	if(options.redis_sentinels) {
-		this.redis = createClient({
-			sentinels: options.redis_sentinels,
-			name: options.redis_master || 'mymaster', // must match sentinel monitor name
+		this.redis = createSentinel({
+			name: options.redis_master || 'mymaster',
+			sentinelRootNodes: options.redis_sentinels,
 			password: options.redis_password,
-			socket: {
-				reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
-			}
 		});
 	} else {
 		this.redis = createClient({

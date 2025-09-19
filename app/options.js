@@ -5,8 +5,8 @@ import RedisStreams from './pubsub/RedisStreams.js';
 
 const pubSub = new RedisStreams({
 	redis_sentinels: (process.env.REDIS_SENTINELS || "").split(/\s*,\s*/).map(sentinel => {
-		const (host, port) = sentinel.split(/:/);
-		return {host, port};
+		const [ host, port ] = sentinel.split(/:/);
+		return {host, port: port || 26379};
 	}),
 	redis_host: process.env.REDIS_HOST,
 	redis_port: process.env.REDIS_PORT,
