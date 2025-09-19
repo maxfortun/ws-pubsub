@@ -59,7 +59,31 @@ export default function worker(workerId) {
 
 		debug(workerId, uuid, 'custom', socket.custom);
 
-		const realm = socket.custom.headers['ws-realm'] || 'dlq';
+		const getValidRealm = socket => {
+			const realm = socket.custom.headers['ws-realm'];
+
+			if(!realm) {
+				socket.send(JSON.stringify({ error: 'Missing realm' }));
+				return null;
+			}
+
+			// Integrate realm provisioning and check in db if realm is allowed
+			/*
+			if(!isRealmAuthorized(socket, realm)) {
+				socket.send(JSON.stringify({ error: 'Unauthorized realm', realm }));
+				return null;
+			}
+			*/
+
+			return realm;
+		};
+
+		const realm = getValidRealm(socket);
+
+		if(!realm) {
+			socket.close(1008, 'Policy Violation');
+			return;
+		}
 
 		const publish = message => {
 			const sanitized = rmEmptyValues(message);
