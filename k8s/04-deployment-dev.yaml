@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dpsrv
+  name: ws-pubsub-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ws-pubsub-dev
+  template:
+    metadata:
+      labels:
+        app: ws-pubsub-dev
+    spec:
+      nodeSelector:
+        local-registry: 'true'
+      containers:
+        - name: ws-pubsub
+          image: localhost:5000/ws-pubsub:1.0.0
+          #image: registry.registry.svc.cluster.local:5000/ws-pubsub:1.0.0
+          imagePullPolicy: Always
+          workingDir: /usr/src/app
+          command: ["./docker-entrypoint.sh"]
+          ports:
+            - containerPort: 3000
+              name: app
+          envFrom:
+            - configMapRef:
+                name: dpsrv
+            - configMapRef:
+                name: ws-pubsub-dev
+
+          volumeMounts:
+            - name: ws-pubsub-env-dev
+              mountPath: /usr/src/app/.env.local
+              subPath: .env.dev
+            - name: mongo-conf-dpsrv-key
+              mountPath: /etc/mongo/dpsrv.key
+              subPath: dpsrv.key
+
+      enableServiceLinks: false
+      #imagePullSecrets:
+        #- name: dockerhub-dpsrv
+      securityContext:
+        #runAsUser: 999
+        #runAsGroup: 999
+        #fsGroup: 999
+      volumes:
+        - name: ws-pubsub-env-dev
+          secret:
+            secretName: ws-pubsub-env-dev
+            defaultMode: 0400
+        - name: mongo-conf-dpsrv-key
+          secret:
+            secretName: mongo-conf-dpsrv-key
+            defaultMode: 0400 

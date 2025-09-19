@@ -1,0 +1,38 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  namespace: dpsrv
+  name: ws-pubsub-dev
+spec:
+  hosts:
+    - ws-dev.ezsso.me
+  gateways:
+    - istio-system/default
+  http:
+    - match:
+        - port: 443
+      route:
+        - destination:
+            host: ws-pubsub-dev.dpsrv.svc.cluster.local
+            port:
+              number: 3000
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  namespace: dpsrv
+  name: ws-pubsub-prod
+spec:
+  hosts:
+    - ws.ezsso.me
+  gateways:
+    - istio-system/default
+  http:
+    - match:
+        - port: 443
+      route:
+        - destination:
+            host: ws-pubsub-prod.dpsrv.svc.cluster.local
+            port:
+              number: 3000
+

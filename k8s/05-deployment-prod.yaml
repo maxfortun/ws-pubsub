@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dpsrv
+  name: ws-pubsub-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ws-pubsub-prod
+  template:
+    metadata:
+      labels:
+        app: ws-pubsub-prod
+    spec:
+      nodeSelector:
+        DPSRV_REGION: cnt-use1
+      containers:
+        - name: ws-pubsub
+          image: maxfortun/private:ws-pubsub-1.0.0
+          workingDir: /usr/src/app
+          command: ["./docker-entrypoint.sh"]
+          ports:
+            - containerPort: 3000
+              name: app
+          envFrom:
+            - configMapRef:
+                name: dpsrv
+            - configMapRef:
+                name: ws-pubsub-prod
+          volumeMounts:
+            - name: ws-pubsub-env-prod 
+              mountPath: /usr/src/app/.env.local
+              subPath: .env.prod
+            - name: mongo-conf-dpsrv-key
+              mountPath: /etc/mongo/dpsrv.key
+              subPath: dpsrv.key
+
+      enableServiceLinks: false
+      imagePullSecrets:
+        - name: dockerhub-dpsrv
+      securityContext:
+        #runAsUser: 999
+        #runAsGroup: 999
+        #fsGroup: 999
+      volumes:
+        - name: ws-pubsub-env-prod
+          secret:
+            secretName: ws-pubsub-env-prod
+            defaultMode: 0400 
+        - name: mongo-conf-dpsrv-key
+          secret:
+            secretName: mongo-conf-dpsrv-key
+            defaultMode: 0400 
+
+
