@@ -11,18 +11,30 @@ export default function RedisStreams(options) {
 
 	const res_stream = `${options.redis_res_channel_prefix}${uuid}`;
 
-	this.redis = createClient({
-		socket: {
-			host: options.redis_host || 'localhost',
-			port: options.redis_port || 6379,
-			family: options.redis_family || 4
-		},
-		password:   options.redis_password,
-		retry_strategy: (options) => {
-			// Reconnect after a delay based on the attempt number
-			return Math.min(options.attempt * 100, 3000);
-		}
-	});
+    // { host: SENTINEL_SERVICE, port: SENTINEL_PORT }
+	if(options.redis_sentinels) {
+		this.redis = createClient({
+			sentinels: options.redis_sentinels,
+			name: options.redis_master || 'mymaster', // must match sentinel monitor name
+			password: options.redis_password,
+			socket: {
+				reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
+			}
+		});
+	} else {
+		this.redis = createClient({
+			socket: {
+				host: options.redis_host || 'localhost',
+				port: options.redis_port || 6379,
+				family: options.redis_family || 4
+			},
+			password:   options.redis_password,
+			retry_strategy: (options) => {
+				// Reconnect after a delay based on the attempt number
+				return Math.min(options.attempt * 100, 3000);
+			}
+		});
+	}
 
 	this.redis.connect();
 

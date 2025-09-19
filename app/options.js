@@ -4,13 +4,17 @@ dotenv.config({ path: '.env.local' })
 import RedisStreams from './pubsub/RedisStreams.js';
 
 const pubSub = new RedisStreams({
+	redis_sentinels: (process.env.REDIS_SENTINELS || "").split(/\s*,\s*/).map(sentinel => {
+		const (host, port) = sentinel.split(/:/);
+		return {host, port};
+	}),
 	redis_host: process.env.REDIS_HOST,
 	redis_port: process.env.REDIS_PORT,
 	redis_password: process.env.REDIS_PASSWORD,
-	redis_req_channel_prefix: 'ws.req.',
-	redis_res_channel_prefix: 'ws.res.',
-	group: 'ws-pubsub',
-	consumer: 'ws-pubsub',
+	redis_req_channel_prefix: 'ws' + ( process.env.REDIS_REALM_PREFIX || "" ) + '.req.',
+	redis_res_channel_prefix: 'ws' + ( process.env.REDIS_REALM_PREFIX || "" ) + '.res.',
+	group: 'ws-pubsub' + ( process.env.REDIS_REALM_PREFIX || "" ),
+	consumer: 'ws-pubsub' + ( process.env.REDIS_REALM_PREFIX || "" ),
 });
 
 export default {
