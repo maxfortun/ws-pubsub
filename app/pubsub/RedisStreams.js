@@ -1,5 +1,5 @@
 import Debug from 'debug';
-const debug = Debug('anon-chat-pubsub:RedisStreams');
+const debug = Debug('ws-pubsub:RedisStreams');
 
 import redis, { createClient, createSentinel } from 'redis';
 redis.debug_mode = true;
