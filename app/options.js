@@ -11,10 +11,10 @@ const pubSub = new RedisStreams({
 	redis_host: process.env.REDIS_HOST,
 	redis_port: process.env.REDIS_PORT,
 	redis_password: process.env.REDIS_PASSWORD,
-	redis_req_channel_prefix: 'ws' + ( process.env.REDIS_REALM_PREFIX || "" ) + '.req.',
-	redis_res_channel_prefix: 'ws' + ( process.env.REDIS_REALM_PREFIX || "" ) + '.res.',
-	group: 'ws-pubsub' + ( process.env.REDIS_REALM_PREFIX || "" ),
-	consumer: 'ws-pubsub' + ( process.env.REDIS_REALM_PREFIX || "" ),
+	redis_req_channel_prefix: 'ws-' + process.env.ENV + '.req.',
+	redis_res_channel_prefix: 'ws-' + process.env.ENV + '.res.',
+	group: 'ws-pubsub-' + process.env.ENV,
+	consumer: 'ws-pubsub-' + process.env.ENV,
 });
 
 export default {
