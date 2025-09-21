@@ -11,10 +11,12 @@ import handlers from './handlers/index.js';
 
 const sockets = {};
 
-export default function worker(workerId) {
+export default async function worker(workerId) {
 	const host = '0.0.0.0';
 	const port = process.env.PORT || 3000;
 	const path = options.ws_path;
+
+	await options.pubSub.connect();
 
 	const webSocketServer = new WebSocketServer({ 
 		host,

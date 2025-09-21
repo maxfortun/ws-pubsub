@@ -4,7 +4,7 @@ metadata:
   namespace: dpsrv
   name: ws-pubsub-dev
 data:
-  DEBUG: '*'
+  DEBUG: '*,redis*'
 ---
 apiVersion: v1
 kind: ConfigMap

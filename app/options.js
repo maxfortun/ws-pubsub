@@ -6,11 +6,12 @@ import RedisStreams from './pubsub/RedisStreams.js';
 const pubSub = new RedisStreams({
 	redis_sentinels: (process.env.REDIS_SENTINELS || "").split(/\s*,\s*/).map(sentinel => {
 		const [ host, port ] = sentinel.split(/:/);
-		return {host, port: port || 26379};
+		return {host, port: parseInt(port || '26379')};
 	}),
 	redis_host: process.env.REDIS_HOST,
 	redis_port: process.env.REDIS_PORT,
 	redis_password: process.env.REDIS_PASSWORD,
+	redis_sentinel_password: process.env.REDIS_PASSWORD,
 	redis_req_channel_prefix: 'ws-' + process.env.ENV + '.req.',
 	redis_res_channel_prefix: 'ws-' + process.env.ENV + '.res.',
 	group: 'ws-pubsub-' + process.env.ENV,

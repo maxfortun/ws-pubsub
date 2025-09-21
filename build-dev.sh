@@ -19,3 +19,5 @@ done 3< <(kubectl get nodes -o json|jq -r '.items[].metadata.name')
 wait
 
 kubectl -n dpsrv rollout restart deployment $podName
+kubectl -n dpsrv get pods -l app=$podName
+

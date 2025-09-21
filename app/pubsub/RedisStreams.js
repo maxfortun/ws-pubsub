@@ -13,13 +13,16 @@ export default function RedisStreams(options) {
 
     // { host: SENTINEL_SERVICE, port: SENTINEL_PORT }
 	if(options.redis_sentinels) {
-		this.redis = createSentinel({
+		const params = {
 			name: options.redis_master || 'mymaster',
 			sentinelRootNodes: options.redis_sentinels,
 			password: options.redis_password,
-		});
+			sentinelPassword: options.redis_sentinel_password
+		};
+		debug('createSentinel', params);
+		this.redis = createSentinel(params);
 	} else {
-		this.redis = createClient({
+		const params = {
 			socket: {
 				host: options.redis_host || 'localhost',
 				port: options.redis_port || 6379,
@@ -30,10 +33,17 @@ export default function RedisStreams(options) {
 				// Reconnect after a delay based on the attempt number
 				return Math.min(options.attempt * 100, 3000);
 			}
-		});
+		};
+		debug('createClient', params);
+		this.redis = createClient(params);
 	}
 
-	this.redis.connect();
+	this.connect = async () => {
+		debug('Connecting');
+		const result = await this.redis.connect();
+		debug('Connected');
+		return result;
+	};
 
 	this.publish = async (realm, data) => {
 		const stream = `${options.redis_req_channel_prefix}${realm}`;
