@@ -38,6 +38,12 @@ export default function RedisStreams(options) {
 		this._redis = createClient(params);
 	}
 
+	this._redis.on('error', (err) => { debug('Redis error:', err); });
+	this._redis.on('connect', () => debug('Redis connecting…'));
+	this._redis.on('ready', () => debug('Redis ready'));
+	this._redis.on('end', () => debug('Redis connection closed'));
+	this._redis.on('reconnecting', () => debug('Redis reconnecting…'));
+
 	this.redis = async () => {
 		if(!this.connectPromise) {
 			debug('Connecting');

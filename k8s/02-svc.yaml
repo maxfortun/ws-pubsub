@@ -4,13 +4,13 @@ metadata:
   name: ws-pubsub-dev
   namespace: dpsrv
 spec:
+  type: ClusterIP
   selector:
     app: ws-pubsub-dev
   ports:
     - name: app
       port: 3000
       targetPort: app
-  type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
@@ -18,11 +18,11 @@ metadata:
   name: ws-pubsub-prod
   namespace: dpsrv
 spec:
+  type: ClusterIP
   selector:
     app: ws-pubsub-prod
   ports:
     - name: app
       port: 3000
       targetPort: app
-  type: ClusterIP
 
