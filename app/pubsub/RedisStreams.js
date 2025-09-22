@@ -39,16 +39,12 @@ export default function RedisStreams(options) {
 	}
 
 	this.redis = async () => {
-		if(this.connectPromise) {
-			debug('Waiting for connect');
-			await this.connectPromise;
-			debug('Connected');
-		} else {
+		if(!this.connectPromise) {
 			debug('Connecting');
 			this.connectPromise = this._redis.connect();
-			await this.connectPromise;
 			debug('Connected');
 		}
+		await this.connectPromise;
 		return this._redis;
 	};
 
