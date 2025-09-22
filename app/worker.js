@@ -16,8 +16,6 @@ export default async function worker(workerId) {
 	const port = process.env.PORT || 3000;
 	const path = options.ws_path;
 
-	await options.pubSub.connect();
-
 	const webSocketServer = new WebSocketServer({ 
 		host,
 		port,

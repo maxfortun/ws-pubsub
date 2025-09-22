@@ -20,7 +20,7 @@ export default function RedisStreams(options) {
 			sentinelPassword: options.redis_sentinel_password
 		};
 		debug('createSentinel', params);
-		this.redis = createSentinel(params);
+		this._redis = createSentinel(params);
 	} else {
 		const params = {
 			socket: {
@@ -35,14 +35,21 @@ export default function RedisStreams(options) {
 			}
 		};
 		debug('createClient', params);
-		this.redis = createClient(params);
+		this._redis = createClient(params);
 	}
 
-	this.connect = async () => {
-		debug('Connecting');
-		const result = await this.redis.connect();
-		debug('Connected');
-		return result;
+	this.redis = async () => {
+		if(this.connectPromise) {
+			debug('Waiting for connect');
+			await this.connectPromise;
+			debug('Connected');
+		} else {
+			debug('Connecting');
+			this.connectPromise = this._redis.connect();
+			await this.connectPromise;
+			debug('Connected');
+		}
+		return this._redis;
 	};
 
 	this.publish = async (realm, data) => {
@@ -50,7 +57,7 @@ export default function RedisStreams(options) {
 		data.addr.topic = res_stream;
 		debug('pub', stream, data); 
 		const message = JSON.stringify(data);
-		return this.redis.xAdd(stream, '*', { message });
+		return (await this.redis()).xAdd(stream, '*', { message });
 	};
 
 	const callbacks = [];
@@ -71,7 +78,7 @@ export default function RedisStreams(options) {
 		}
 
 		try {
-			const result = await this.redis.xGroupCreate(stream, group, '0', { MKSTREAM: true });
+			const result = await (await this.redis()).xGroupCreate(stream, group, '0', { MKSTREAM: true });
 			streamGroups[stream].groups[group] = true;
 			debug('Stream group created:', stream, group, result);
 			return result;
@@ -86,7 +93,7 @@ export default function RedisStreams(options) {
 	};
 
 	this.readGroup = async (stream, callback) => {
-		const streams = await this.redis.xReadGroup(group, consumer, [ { key: stream, id: '>' } ], { COUNT: 1 });
+		const streams = await (await this.redis()).xReadGroup(group, consumer, [ { key: stream, id: '>' } ], { COUNT: 1 });
 
 		if (!streams || !streams.length) {
 			return;
@@ -97,7 +104,7 @@ export default function RedisStreams(options) {
 				const data = JSON.parse(message.message);
 				debug('sub', stream, data);
 				callback(data);
-				await this.redis.xAck(stream, group, id);
+				await (await this.redis()).xAck(stream, group, id);
 			}
 		}
 	};
