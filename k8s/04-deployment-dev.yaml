@@ -10,6 +10,8 @@ spec:
       app: ws-pubsub-dev
   template:
     metadata:
+      annotations:
+        traffic.sidecar.istio.io/excludeOutboundPorts: "6379,26379"
       labels:
         app: ws-pubsub-dev
     spec:

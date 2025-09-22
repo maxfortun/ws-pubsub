@@ -11,15 +11,21 @@ export default function RedisStreams(options) {
 
 	const res_stream = `${options.redis_res_channel_prefix}${uuid}`;
 
-    // { host: SENTINEL_SERVICE, port: SENTINEL_PORT }
 	if(options.redis_sentinels) {
 		const params = {
 			name: options.redis_master || 'mymaster',
 			sentinelRootNodes: options.redis_sentinels,
-			password: options.redis_password,
-			sentinelPassword: options.redis_sentinel_password
+			sentinelClientOptions: {
+				// This password is used for authenticating with the Sentinel instances
+				password: options.redis_sentinel_password
+			},
+			nodeClientOptions: {
+				// This password is used for authenticating with the master and replica nodes
+				password: options.redis_password
+			},
 		};
-		debug('createSentinel', params);
+
+		// debug('createSentinel', params);
 		this._redis = createSentinel(params);
 	} else {
 		const params = {
@@ -34,7 +40,7 @@ export default function RedisStreams(options) {
 				return Math.min(options.attempt * 100, 3000);
 			}
 		};
-		debug('createClient', params);
+		// debug('createClient', params);
 		this._redis = createClient(params);
 	}
 
