@@ -6,7 +6,7 @@ COPY app/ /usr/src/app/
 ARG GIT_CREDENTIALS
 
 RUN <<_EOT_
-	set +ex
+	set -e +x
 	echo "$GIT_CREDENTIALS" | base64 -d > $HOME/.git-credentials
 	apk add git
 	git config --global credential.helper store
