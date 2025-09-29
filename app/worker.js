@@ -109,7 +109,8 @@ export default async function worker(workerId) {
 			publish({
 				addr: { ws: uuid },
 				meta: socket.meta || {},
-				message
+				message,
+				isBinary
 			});
 		});
 
