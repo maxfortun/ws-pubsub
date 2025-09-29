@@ -95,7 +95,7 @@ export default async function worker(workerId) {
 			debug(workerId, uuid, 'close', Object.keys(sockets).length, event);
 			publish({
 				addr: { ws: uuid },
-				meta: socket.meta,
+				meta: socket.meta || {},
 				wsctl: 'close'
 			});
 		});
@@ -108,14 +108,14 @@ export default async function worker(workerId) {
 		socket.on('message', (message, isBinary) => {
 			publish({
 				addr: { ws: uuid },
-				meta: socket.meta,
+				meta: socket.meta || {},
 				message
 			});
 		});
 
 		publish({
 			addr: { ws: uuid },
-			meta: socket.meta,
+			meta: socket.meta || {},
 			wsctl: 'open'
 		});
 	});
