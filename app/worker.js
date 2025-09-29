@@ -86,8 +86,8 @@ export default async function worker(workerId) {
 		}
 
 		const publish = message => {
-			const sanitized = rmEmptyValues(message);
-			options.pubSub.publish(realm, sanitized);
+			// const sanitized = rmEmptyValues(message);
+			options.pubSub.publish(realm, message);
 		};
 
 		socket.on('close', event => {
@@ -105,11 +105,11 @@ export default async function worker(workerId) {
 		});
 
 		// Maybe add crypto key to socket addr to prevent spoofing?
-		socket.on('message', event => {
+		socket.on('message', (message, isBinary) => {
 			publish({
 				addr: { ws: uuid },
 				meta: socket.meta,
-				message: event.toString()
+				message
 			});
 		});
 
