@@ -24,7 +24,7 @@ export default async function worker(workerId) {
 		debug(workerId, 'Started WebSocket worker on', host, port, path);
 	});
 
-	webSocketServer.on('connection', socket => {
+	webSocketServer.on('connection', (socket, req) => {
 		const uuid = crypto.randomUUID();
 		sockets[uuid] = socket;
 
@@ -32,7 +32,9 @@ export default async function worker(workerId) {
 
 		socket.custom = {
 			protocols: [],
-			headers: {}
+			headers: {
+				client_ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+			}
 		};
 
 		if(socket.protocol) {
@@ -115,7 +117,7 @@ export default async function worker(workerId) {
 		});
 
 		publish({
-			addr: { ws: uuid },
+			addr: { ws: uuid, client_ip: socket.custom.headers.client_ip },
 			meta: socket.meta || {},
 			wsctl: 'open'
 		});
