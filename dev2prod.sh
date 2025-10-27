@@ -1,6 +1,6 @@
 #!/bin/bash -ex
 
-SWD=$(dirname $0)
+SWD=$(cd $(dirname $0); pwd)
 
 name=$(basename $SWD)
 devPodName=$name-dev
