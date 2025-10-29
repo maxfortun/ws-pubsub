@@ -33,7 +33,9 @@ export default async function worker(workerId) {
 		socket.custom = {
 			protocols: [],
 			headers: {
-				client_ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+				client_ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+				'user-agent': req.headers['user-agent'],
+				origin: req.headers.origin,
 			}
 		};
 
