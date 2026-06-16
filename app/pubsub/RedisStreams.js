@@ -4,60 +4,74 @@ const debug = Debug('ws-pubsub:RedisStreams');
 import redis, { createClient, createSentinel } from 'redis';
 redis.debug_mode = true;
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function RedisStreams(options) {
 	const {group, consumer} = options;
+	const maxRetryDelay = options.maxRetryDelay || 30000;
 
 	const uuid = crypto.randomUUID();
 
 	const res_stream = `${options.redis_res_channel_prefix}${uuid}`;
 
-	if(options.redis_sentinels) {
-		const params = {
-			name: options.redis_master || 'mymaster',
-			sentinelRootNodes: options.redis_sentinels,
-			sentinelClientOptions: {
-				// This password is used for authenticating with the Sentinel instances
-				password: options.redis_sentinel_password
-			},
-			nodeClientOptions: {
-				// This password is used for authenticating with the master and replica nodes
-				password: options.redis_password
-			},
-		};
+	const createRedisClient = () => {
+		if(options.redis_sentinels) {
+			const params = {
+				name: options.redis_master || 'mymaster',
+				sentinelRootNodes: options.redis_sentinels,
+				sentinelClientOptions: {
+					password: options.redis_sentinel_password
+				},
+				nodeClientOptions: {
+					password: options.redis_password
+				},
+			};
+			const client = createSentinel(params);
+			client.on('error', err => debug('Redis Sentinel error:', err.message || err));
+			return client;
+		} else {
+			const params = {
+				socket: {
+					host: options.redis_host || 'localhost',
+					port: options.redis_port || 6379,
+					family: options.redis_family || 4,
+					reconnectStrategy: attempt => Math.min(attempt * 100, maxRetryDelay)
+				},
+				password: options.redis_password,
+			};
+			debug('createRedis:', params);
+			const client = createClient(params);
+			client.on('error', err => debug('Redis client error:', err.message || err));
+			return client;
+		}
+	};
 
-		// debug('createSentinel', params);
-		this._redis = createSentinel(params);
-	} else {
-		const params = {
-			socket: {
-				host: options.redis_host || 'localhost',
-				port: options.redis_port || 6379,
-				family: options.redis_family || 4
-			},
-			password:   options.redis_password,
-			retry_strategy: (options) => {
-				// Reconnect after a delay based on the attempt number
-				return Math.min(options.attempt * 100, 3000);
-			}
-		};
-		// debug('createClient', params);
-		this._redis = createClient(params);
-	}
-
-	this._redis.on('error', (err) => { debug('Redis error:', err); });
-	this._redis.on('connect', () => debug('Redis connecting…'));
-	this._redis.on('ready', () => debug('Redis ready'));
-	this._redis.on('end', () => debug('Redis connection closed'));
-	this._redis.on('reconnecting', () => debug('Redis reconnecting…'));
+	this._redis = null;
+	this.connectPromise = null;
 
 	this.redis = async () => {
-		if(!this.connectPromise) {
-			debug('Connecting');
-			this.connectPromise = this._redis.connect();
-			debug('Connected');
+		if (this._redis && this._redis.isOpen) {
+			return this._redis;
 		}
-		await this.connectPromise;
-		return this._redis;
+
+		let attempt = 0;
+		while (true) {
+			attempt++;
+			try {
+				if (this._redis) {
+					try { await this._redis.disconnect(); } catch (_) {}
+				}
+				this._redis = createRedisClient();
+				debug('Connecting (attempt %d)', attempt);
+				await this._redis.connect();
+				debug('Connected');
+				return this._redis;
+			} catch (err) {
+				const delay = Math.min(attempt * 1000, maxRetryDelay);
+				debug('Connection failed (attempt %d), retrying in %dms: %s', attempt, delay, err.message || err);
+				await sleep(delay);
+			}
+		}
 	};
 
 	this.publish = async (realm, data) => {
@@ -118,14 +132,20 @@ export default function RedisStreams(options) {
 	};
 
 	this._subscribe = async (stream, callback) => {
-		await this.initStreamGroup(stream, group);
+		let errorCount = 0;
 
 		debug('subscribe:', stream, group, consumer);
 		while(true) {
 			try {
+				await this.initStreamGroup(stream, group);
 				await this.readGroup(stream, callback);
+				errorCount = 0;
 			} catch(e) {
-				debug('Error reading stream:', stream, group, consumer, e);
+				errorCount++;
+				const delay = Math.min(errorCount * 1000, maxRetryDelay);
+				debug('Error reading stream (attempt %d), retrying in %dms: %s', errorCount, delay, e.message || e);
+				this._redis = null;
+				await sleep(delay);
 			}
 		}
 	};

@@ -3,11 +3,13 @@ dotenv.config({ path: '.env.local' })
 
 import RedisStreams from './pubsub/RedisStreams.js';
 
+const redisSentinels = (process.env.REDIS_SENTINELS || "").split(/\s*,\s*/).filter(s => s).map(sentinel => {
+	const [ host, port ] = sentinel.split(/:/);
+	return {host, port: parseInt(port || '26379')};
+});
+
 const pubSub = new RedisStreams({
-	redis_sentinels: (process.env.REDIS_SENTINELS || "").split(/\s*,\s*/).map(sentinel => {
-		const [ host, port ] = sentinel.split(/:/);
-		return {host, port: parseInt(port || '26379')};
-	}),
+	redis_sentinels: redisSentinels.length ? redisSentinels : undefined,
 	redis_host: process.env.REDIS_HOST,
 	redis_port: process.env.REDIS_PORT,
 	redis_password: process.env.REDIS_PASSWORD,
