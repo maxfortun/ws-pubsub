@@ -74,7 +74,8 @@ Each entry on `ws-<ENV>.req.<realm>` has one field, `message`, holding JSON:
 | `wsctl` | `open`, `close` | Socket lifecycle. Absent for ordinary messages. |
 | `conn` | `open` only | Connection facts from the request headers (table above). Sent once; keep what you need in `meta`. |
 | `meta` | always | Whatever backends stored on this socket with `set_meta` (e.g. user id after login). Empty until set. |
-| `message` | client messages | The client's frame as a serialized Node Buffer (`{ "type": "Buffer", "data": [...] }`); `Buffer.from(message)` restores it. |
+| `message` | client messages | The client's frame: text frames as a string; binary frames as base64. `encoding === 'base64' ? Buffer.from(message, 'base64') : Buffer.from(message)` gives the bytes for every encoding. |
+| `encoding` | client messages | `utf8` (text), `base64` (binary), or `buffer`: a serialized Node Buffer (`{ "type": "Buffer", "data": [...] }`, ~3.6x the frame). Binary frames of platform realms are sent as `buffer` - which backends that only do `Buffer.from(message)` read - unless the connection's backend said `accepts: ["base64"]` (e.g. in its reply to `open`). Registered realms always get base64. |
 | `isBinary` | client messages | Whether the client sent a binary frame. |
 
 ## Messages: backend → gateway
@@ -87,6 +88,7 @@ Write to `addr.topic` (a field `message` holding JSON):
 | `message` | String sent to the client as-is. |
 | `wsctl: 'set_meta'` + `meta` | Merge `meta` into the socket's meta; every later message from that socket carries it. Merge only: keys can be overwritten but not removed. |
 | `wsctl: 'close'` | Close the socket. |
+| `accepts: ['base64']` | Optional, best in the reply to `open`: this connection's later binary frames may be sent as base64 (`encoding: 'base64'`). Kept on the socket; a later `accepts` replaces it. Without it binary frames keep the larger `buffer` form. |
 
 `message` and `wsctl` may be combined; the message is sent first.
 
@@ -197,6 +199,6 @@ over what admin sends:
 
 - **Users are not authenticated by the gateway.** Registered realms limit
   origins, but backends must authenticate users themselves.
-- **Client frames are JSON-encoded Buffers** (one number per byte), several
-  times the size of the frame.
+- **Replies are text only:** a backend's `message` is sent to the client as
+  a text frame; there is no way to send a binary frame back yet.
 - **`set_meta` can't remove keys** (e.g. on logout); backends overwrite them.

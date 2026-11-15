@@ -113,7 +113,7 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS) && 'se
 	};
 
 	// A backend: reads `stream` on `redis`, answers each message to addr.topic
-	const backend = (redis, stream) => {
+	const backend = (redis, stream, extra = {}) => {
 		const seen = [];
 		let stop = false;
 		(async () => {
@@ -128,7 +128,7 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS) && 'se
 						seen.push(env);
 						if(env.message) {
 							const text = Buffer.from(env.message).toString();
-							await redis.xAdd(env.addr.topic, '*', { message: JSON.stringify({ addr: env.addr, message: `echo:${text}` }) });
+							await redis.xAdd(env.addr.topic, '*', { message: JSON.stringify({ addr: env.addr, message: `echo:${text}`, ...extra }) });
 						}
 						await reader.xAck(stream, 'svc', id);
 					}
@@ -232,6 +232,36 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS) && 'se
 		const asked = admin.checks.length;
 		assert.ok(await echoes('dating', 'ws-test.req.dating', platformRedis));
 		assert.equal(admin.checks.length, asked);
+	});
+
+	it('binary frames: compact base64 for connections whose backend says it reads it, the old form otherwise', async () => {
+		const binaryOf = async (svc, ws, messages) => {
+			const before = svc.seen.length;
+			ws.send(Buffer.from([0, 1, 2, 255]), { binary: true });
+			await waitFor(() => svc.seen.slice(before).some(e => e.isBinary));
+			return svc.seen.slice(before).find(e => e.isBinary);
+		};
+		let svc = backend(platformRedis, 'ws-test.req.photos');
+		let { ws, messages } = await connect('photos');
+		ws.send('hi');
+		await waitFor(() => messages.includes('echo:hi'));
+		let frame = await binaryOf(svc, ws, messages);
+		assert.equal(frame.encoding, 'buffer', 'old backends keep working');
+		assert.deepEqual(Buffer.from(frame.message), Buffer.from([0, 1, 2, 255]));
+		ws.close();
+		svc.stop();
+
+		svc = backend(platformRedis, 'ws-test.req.photos', { accepts: ['base64'] });
+		({ ws, messages } = await connect('photos'));
+		ws.send('hi');
+		await waitFor(() => messages.includes('echo:hi'));
+		frame = await binaryOf(svc, ws, messages);
+		assert.equal(frame.encoding, 'base64');
+		assert.deepEqual(Buffer.from(frame.message, 'base64'), Buffer.from([0, 1, 2, 255]));
+		const text = svc.seen.find(e => e.message === 'hi');
+		assert.equal(text?.encoding, 'utf8', 'text frames are plain strings');
+		ws.close();
+		svc.stop();
 	});
 
 	it('applies changes pushed by admin at once, and reads without busy-looping', async () => {

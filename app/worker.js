@@ -9,6 +9,7 @@ import options from './options.js';
 
 import handlers from './handlers/index.js';
 import { createRouter, RouteError } from './realms/router.js';
+import { encodeFrame } from './pubsub/frames.js';
 
 const sockets = {};
 
@@ -157,7 +158,7 @@ export default async function worker(workerId) {
 			publish({
 				addr: { ws: uuid },
 				meta: socket.meta || {},
-				message,
+				...encodeFrame(message, isBinary, r.realm || socket.custom.accepts?.includes('base64') ? 'base64' : 'buffer'),
 				isBinary
 			});
 		});
@@ -174,6 +175,12 @@ export default async function worker(workerId) {
 		const socket = sockets[data?.addr?.ws];
 		if(!socket) {
 			return;
+		}
+
+		// What this connection's backend reads, e.g. accepts: ['base64'] in
+		// its reply to open: kept on the socket for its later frames
+		if(Array.isArray(data.accepts)) {
+			socket.custom.accepts = data.accepts.filter(a => typeof a === 'string');
 		}
 
 		// data.m == message
