@@ -7,7 +7,6 @@ services:
       context: .
       args:
         DOCKER_BUILDKIT: 1
-        GIT_CREDENTIALS: $GIT_CREDENTIALS
     working_dir: /usr/src/app
     environment:
       DEBUG: "*,-nodemon*"

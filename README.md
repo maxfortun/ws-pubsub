@@ -94,7 +94,7 @@ Write to `addr.topic` (a field `message` holding JSON):
 
 | Env | Default | Meaning |
 |---|---|---|
-| `ENV` | – | Environment name in stream names (`ws-<ENV>.req.*`, `ws-<ENV>.res.*`) and the consumer group `ws-pubsub-<ENV>`. |
+| `ENV` | `prod` | Environment name in stream names (`ws-<ENV>.req.*`, `ws-<ENV>.res.*`) and the consumer group `ws-pubsub-<ENV>`. |
 | `PORT` | `3000` | Listen port (all paths). |
 | `OS_CPUS` | `1` | Worker processes per pod (Node cluster). |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | `localhost`, `6379` | Redis. |
@@ -133,36 +133,63 @@ Backend support is optional. A backend that supports lifetimes:
 
 ## Realms from ws-pubsub-admin
 
-With `WSPA_MONGODB` set, the gateway reads realms registered in
-ws-pubsub-admin (collection `realms`, cached for `WS_REALM_CACHE`):
+With `WSPA_URL` set, the gateway keeps one WebSocket to ws-pubsub-admin's
+agent API (`/agent/v1`, see its README) - never its database. Admin sends
+every realm the token may serve on connect, and each change as it happens;
+for every browser connection to a registered realm the gateway also asks
+admin (`check`) before routing it.
 
-- **Registered realm:** refused (1008) if disabled or the page's origin isn't
-  in its `allowed_origins`. Its request and reply topics are rendered from
-  its templates (`{realm}`, `{env}`, `{gateway}`, `{header.NAME}` from the
-  client's subprotocol parameters; unsafe or missing values refuse the
-  connection). Messages go to the realm's own backend with its TTL, and
-  messages over `limits.max_message_bytes`, or binary ones unless
-  `limits.allow_binary`, are answered with an error and dropped. Backend
-  secrets are opened with `SECRETS_KEYS` (the admin's keys).
+- **Registered realm:** refused (1008) if disabled, if the page's origin
+  isn't in its `allowed_origins`, or if admin's check says no. Its request
+  and reply topics are rendered from its templates (`{realm}`, `{env}`,
+  `{gateway}`, `{header.NAME}` from the client's subprotocol parameters;
+  unsafe or missing values refuse the connection). Messages go to the
+  realm's own backend with its TTL, and messages over
+  `limits.max_message_bytes`, or binary ones unless `limits.allow_binary`,
+  are answered with an error and dropped.
 - **Unregistered realm** (e.g. `dating`): the platform Redis (`REDIS_*`)
-  as before, or refused with `WS_REALMS_STRICT=true`.
-- **Registry unreachable:** cached realms keep their settings, and other
-  realms not on the last loaded list of registered ids use the platform
-  Redis. A realm on that list but not cached is refused (1011): a
-  registered realm's messages never go elsewhere. Only if the registry
-  has been unreachable since the gateway started is there no list, and
-  then unknown realms use the platform Redis (refused when strict). An
-  outage adds no delay: lookups are skipped until the registry is back.
+  as before, without asking admin; refused with `WS_REALMS_STRICT=true`
+  and always in agent mode.
+- **Admin unreachable:** the last settings it sent keep serving. Checks
+  that get no answer within `WS_ADMIN_CHECK_TIMEOUT` are allowed on those
+  settings, or refused with `WS_ADMIN_CHECK_REQUIRED=true`. A gateway that
+  hasn't reached admin since it started treats every realm as unregistered.
+- **Token refused or revoked:** the gateway drops the realms it had.
 
 Supported backends: Redis Streams. Kafka and ActiveMQ realms are refused
 (1011) until their transports exist.
 
+### Agent mode
+
+`WS_MODE=agent` runs the gateway next to your brokers, so messages don't
+travel to the hosted gateway and back: create an agent token in the
+admin console (Agents), and point browsers at the agent's own
+`wss://.../ws`. An agent has no platform Redis: it serves its account's
+registered realms only.
+
+```bash
+docker build -t ws-pubsub .
+docker run -p 3000:3000 -e WS_MODE=agent \
+  -e WSPA_URL=wss://ws-admin.ezsso.me/agent/v1 -e WSPA_TOKEN=wspa_agent_... ws-pubsub
+```
+
+Broker credentials can come from admin, or stay on your side: leave them
+empty in admin and give the agent a file (`WS_LOCAL_REALMS_FILE`), merged
+over what admin sends:
+
+```json
+{ "my-app": { "secrets": { "password": "..." }, "config": { "host": "10.0.0.5" } } }
+```
+
 | Env | Default | Meaning |
 |---|---|---|
-| `WSPA_MONGODB` | – | ws-pubsub-admin's MongoDB (a read-only user is enough). Unset: every realm uses the platform Redis. |
-| `SECRETS_KEYS` | – | The admin's `kid:base64key,...`, to open backend passwords. |
-| `WS_REALMS_STRICT` | `false` | Refuse realms that aren't registered. |
-| `WS_REALM_CACHE` | `30s` | How often realm settings and the list of registered ids are refreshed. |
+| `WS_MODE` | `hosted` | `hosted`: with the platform Redis for unregistered realms. `agent`: registered realms only, no platform Redis. |
+| `WSPA_URL` | – | ws-pubsub-admin's agent API, e.g. `wss://ws-admin.ezsso.me/agent/v1` (in the cluster: `ws://ws-pubsub-admin-prod.dpsrv.svc.cluster.local:3000/agent/v1`). Unset (hosted only): every realm uses the platform Redis. |
+| `WSPA_TOKEN` | – | An agent token (console: Agents), or for the hosted gateway a platform token (admin's `PLATFORM_AGENT_TOKENS`). |
+| `WS_LOCAL_REALMS_FILE` | – | JSON of per-realm `config` and `secrets` merged over admin's (read at start). |
+| `WS_ADMIN_CHECK_TIMEOUT` | `3s` | How long a connection waits for admin's check. |
+| `WS_ADMIN_CHECK_REQUIRED` | `false` | Refuse connections admin didn't confirm (it's unreachable or slow) instead of allowing them on the last settings. |
+| `WS_REALMS_STRICT` | `false` | Refuse unregistered realms (hosted mode). |
 
 `WS_ALLOWED_ORIGINS` applies to platform and unregistered realms only.
 
@@ -173,4 +200,3 @@ Supported backends: Redis Streams. Kafka and ActiveMQ realms are refused
 - **Client frames are JSON-encoded Buffers** (one number per byte), several
   times the size of the frame.
 - **`set_meta` can't remove keys** (e.g. on logout); backends overwrite them.
-- `options.js` still carries `ezsso_*` settings that nothing uses.

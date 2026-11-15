@@ -3,7 +3,7 @@ const debug = Debug('ws-pubsub:main');
 
 import { WebSocketServer }	from 'ws';
 
-import { atob, rmEmptyValues } from './utils.js';
+import { atob } from './utils.js';
 
 import options from './options.js';
 
@@ -106,7 +106,7 @@ export default async function worker(workerId) {
 		const headers = Object.fromEntries(Object.entries(socket.custom.headers).map(([k, v]) => [k.toLowerCase(), v]));
 
 		// Routing may need a registry lookup: queue messages until it's done
-		const routed = router.route(realm, { origin: conn.origin, headers });
+		const routed = router.route(realm, { origin: conn.origin, headers, conn });
 		let route = null;
 		let refused = false;
 		routed.then(r => { route = r; }, err => {
@@ -191,6 +191,6 @@ export default async function worker(workerId) {
 			}
 		}
 	}
-	options.pubSub.subscribe(deliver);
+	options.pubSub?.subscribe(deliver);
 }
 

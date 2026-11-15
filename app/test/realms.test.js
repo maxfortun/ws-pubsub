@@ -1,46 +1,64 @@
-// End to end: a gateway process with the admin's registry, the platform
-// Redis and a realm's own Redis.
+// End to end: a gateway process, a fake ws-pubsub-admin (its /agent/v1
+// protocol), the platform Redis and a realm's own Redis.
 //   WS_TEST_REDIS=redis://127.0.0.1:6379            platform Redis
 //   WS_TEST_REALM_REDIS=redis://:pw@127.0.0.1:6380  a realm's Redis (with a password)
-//   WS_TEST_MONGODB=mongodb://127.0.0.1:27017       registry
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { MongoClient } from 'mongodb';
 import { createClient } from 'redis';
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 
-const { WS_TEST_REDIS, WS_TEST_REALM_REDIS, WS_TEST_MONGODB } = process.env;
+const { WS_TEST_REDIS, WS_TEST_REALM_REDIS } = process.env;
 const APP = fileURLToPath(new URL('..', import.meta.url));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const KEY = crypto.randomBytes(32);
-
-// Sealed like ws-pubsub-admin does
-const seal = (value, realm, field) => {
-	const iv = crypto.randomBytes(12);
-	const cipher = crypto.createCipheriv('aes-256-gcm', KEY, iv);
-	cipher.setAAD(Buffer.from(`wspa:${realm}:backend.secrets.${field}`));
-	const ct = Buffer.concat([cipher.update(value), cipher.final()]);
-	return `wspa:enc:v1:k1:${Buffer.concat([iv, ct, cipher.getAuthTag()]).toString('base64url')}`;
-};
 const param = (name, value) => Buffer.from(`${name}: ${value}`).toString('base64').replace(/=+$/, '');
+const TOKEN = 'test-token';
 
-describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_TEST_MONGODB) && 'set WS_TEST_REDIS, WS_TEST_REALM_REDIS, WS_TEST_MONGODB' }, () => {
-	let gateway, mongo, db, platformRedis, realmRedis, port, dbName;
+/** Plays ws-pubsub-admin's /agent/v1 */
+function fakeAdmin() {
+	const wss = new WebSocketServer({ port: 0, path: '/agent/v1', verifyClient: ({ req }) => req.headers.authorization === `Bearer ${TOKEN}` });
+	const admin = {
+		realms: new Map(),
+		checks: [],
+		// (msg) -> verdict, or null to never answer
+		verdict: () => ({ allow: true }),
+		url: () => `ws://127.0.0.1:${wss.address().port}/agent/v1`,
+		send: msg => wss.clients.forEach(c => c.send(JSON.stringify(msg))),
+		upsert(realm) {
+			admin.realms.set(realm.id, realm);
+			admin.send({ type: 'upsert', realm });
+		},
+		close: () => new Promise(r => { wss.clients.forEach(c => c.terminate()); wss.close(r); }),
+	};
+	wss.on('connection', ws => {
+		ws.send(JSON.stringify({ type: 'snapshot', realms: [...admin.realms.values()] }));
+		ws.on('message', raw => {
+			const msg = JSON.parse(raw);
+			if(msg.type !== 'check') return;
+			admin.checks.push(msg);
+			const verdict = admin.verdict(msg);
+			if(verdict) ws.send(JSON.stringify({ type: 'check_result', req_id: msg.req_id, ...verdict }));
+		});
+	});
+	return admin;
+}
+
+describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS) && 'set WS_TEST_REDIS, WS_TEST_REALM_REDIS' }, () => {
+	let gateway, admin, platformRedis, realmRedis, port;
 	const realmUrl = new URL(WS_TEST_REALM_REDIS);
+	const realmPassword = decodeURIComponent(realmUrl.password);
 
 	const realm = (id, overrides = {}) => ({
-		id, owner_id: 'u', status: 'enabled', revision: 1,
+		id, status: 'enabled', revision: 1,
 		allowed_origins: ['https://app.test'],
 		ttl_ms: 120000,
 		limits: { max_message_bytes: 100, allow_binary: false },
-		backend: {
-			type: 'redis_streams',
-			config: { host: realmUrl.hostname, port: Number(realmUrl.port) },
-			secrets: { password: seal(decodeURIComponent(realmUrl.password), id, 'password') },
-		},
+		backend: { type: 'redis_streams', config: { host: realmUrl.hostname, port: Number(realmUrl.port) } },
+		secrets: { password: realmPassword },
 		topics: { request: 'app.{header.ws-tenant}.{realm}.req', reply: 'app.{realm}.res.{gateway}' },
 		...overrides,
 	});
@@ -53,14 +71,24 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 			env: {
 				...process.env, ENV: 'test', PORT: String(port), OS_CPUS: '1',
 				REDIS_HOST: platform.hostname, REDIS_PORT: platform.port,
-				WSPA_MONGODB: `${WS_TEST_MONGODB}/${dbName}`, SECRETS_KEYS: `k1:${KEY.toString('base64')}`,
-				WS_REALM_CACHE: '200ms', DEBUG: '',
+				WSPA_URL: admin.url(), WSPA_TOKEN: TOKEN,
+				DEBUG: '',
 				...env,
 			},
 			stdio: 'ignore',
 		});
+		// Up once it accepts sockets (the probe realm may then be refused)
 		for(let i = 0; i < 50; i++) {
-			try { await connect('probe-not-a-realm-wait', {}, 'x'); break; } catch { await sleep(100); }
+			try {
+				await new Promise((resolve, reject) => {
+					const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, [param('ws-realm', 'probe')]);
+					ws.on('open', () => { ws.close(); resolve(); });
+					ws.on('error', reject);
+				});
+				break;
+			} catch {
+				await sleep(100);
+			}
 		}
 	};
 	const stopGateway = async () => {
@@ -118,30 +146,41 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 		}
 		return fn();
 	};
+	// Connects, sends "ping" and waits for the backend's echo
+	const echoes = async (realmId, stream, redis, headers = {}) => {
+		const svc = backend(redis, stream);
+		try {
+			const { ws, messages } = await connect(realmId, headers);
+			ws.send('ping');
+			const ok = await waitFor(() => messages.includes('echo:ping'));
+			ws.close();
+			return ok;
+		} finally {
+			svc.stop();
+		}
+	};
 
 	before(async () => {
-		dbName = `wsp_test_${Date.now()}`;
-		mongo = await new MongoClient(WS_TEST_MONGODB).connect();
-		db = mongo.db(dbName);
 		platformRedis = await createClient({ url: WS_TEST_REDIS }).connect();
 		realmRedis = await createClient({ url: WS_TEST_REALM_REDIS }).connect();
-		await db.collection('realms').insertMany([
+		admin = fakeAdmin();
+		await sleep(50);
+		for(const r of [
 			realm('chat'),
 			realm('off', { status: 'disabled' }),
-			realm('kafkaish', { backend: { type: 'kafka', config: { brokers: ['k:9092'] }, secrets: {} } }),
-			realm('badkey', { backend: { type: 'redis_streams', config: { host: 'x', port: 1 }, secrets: { password: 'wspa:enc:v1:k1:AAAA' } } }),
-		]);
+			realm('kafkaish', { backend: { type: 'kafka', config: { brokers: ['k:9092'] } }, secrets: {} }),
+			realm('badkey', { secrets: {}, secrets_error: 'Realm secrets cannot be opened' }),
+		]) admin.realms.set(r.id, r);
 		await startGateway();
 	});
 	after(async () => {
 		await stopGateway();
-		await db?.dropDatabase();
-		await mongo?.close();
+		await admin?.close();
 		await platformRedis?.disconnect();
 		await realmRedis?.disconnect();
 	});
 
-	it('routes a registered realm to its own Redis, with its topics and TTL', async () => {
+	it('routes a registered realm to its own Redis, with its topics and TTL, after admin confirms the connection', async () => {
 		const svc = backend(realmRedis, 'app.acme.chat.req');
 		const { ws, messages } = await connect('chat', { 'ws-tenant': 'acme' });
 		ws.send('hello');
@@ -151,6 +190,10 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 		assert.ok(msg.exp > Date.now() + 100000 && msg.exp <= Date.now() + 120000, 'realm TTL');
 		assert.ok(svc.seen.find(e => e.wsctl === 'open')?.conn, 'open event with conn');
 		assert.equal(await platformRedis.exists('ws-test.req.chat'), 0, 'nothing on the platform Redis');
+		const check = admin.checks.find(c => c.realm === 'chat');
+		assert.equal(check.origin, 'https://app.test');
+		assert.equal(check.headers['ws-tenant'], 'acme');
+		assert.ok(check.ip, 'client ip sent');
 		ws.close();
 		svc.stop();
 	});
@@ -165,7 +208,8 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 		ws.close();
 	});
 
-	it('refuses: other origin, disabled, missing or unsafe header, unsupported backend, unopenable secrets', async () => {
+	it('refuses: other origin, disabled, missing or unsafe header, unsupported backend, unopenable secrets, admin says no', async () => {
+		admin.verdict = msg => (msg.headers['ws-tenant'] === 'banned' ? { allow: false, code: 1008, reason: 'Banned by admin' } : { allow: true });
 		const cases = [
 			[['chat', { 'ws-tenant': 'acme' }, 'https://evil.test'], /Origin not allowed/],
 			[['off', { 'ws-tenant': 'acme' }], /disabled/],
@@ -173,6 +217,7 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 			[['chat', { 'ws-tenant': '../other' }], /must be/],
 			[['kafkaish', { 'ws-tenant': 'acme' }], /not supported/],
 			[['badkey', { 'ws-tenant': 'acme' }], /cannot be opened/],
+			[['chat', { 'ws-tenant': 'banned' }], /Banned by admin/],
 		];
 		for(const [args, reason] of cases) {
 			const { ws } = await connect(...args);
@@ -180,22 +225,21 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 			assert.ok(info, `${args[0]}: not closed`);
 			assert.match(info.reason, reason, JSON.stringify(info));
 		}
+		admin.verdict = () => ({ allow: true });
 	});
 
-	it('keeps unregistered realms on the platform Redis', async () => {
-		const svc = backend(platformRedis, 'ws-test.req.dating');
-		const { ws, messages } = await connect('dating');
-		ws.send('hi');
-		assert.ok(await waitFor(() => messages.includes('echo:hi')), `no echo: ${messages}`);
-		ws.close();
-		svc.stop();
+	it('keeps unregistered realms on the platform Redis, without asking admin', async () => {
+		const asked = admin.checks.length;
+		assert.ok(await echoes('dating', 'ws-test.req.dating', platformRedis));
+		assert.equal(admin.checks.length, asked);
 	});
 
-	it('picks up realm changes (cache) and reads without busy-looping', async () => {
-		await db.collection('realms').updateOne({ id: 'chat' }, { $set: { status: 'disabled' }, $inc: { revision: 1 } });
-		await sleep(400);
+	it('applies changes pushed by admin at once, and reads without busy-looping', async () => {
+		admin.upsert({ ...realm('chat'), status: 'disabled', revision: 2 });
+		await sleep(100);
 		const { ws } = await connect('chat', { 'ws-tenant': 'acme' });
 		assert.match((await closedWith(ws)).reason, /disabled/);
+		admin.upsert({ ...realm('chat'), revision: 3 });
 
 		const count = async () => Number((await platformRedis.info('stats')).match(/total_commands_processed:(\d+)/)[1]);
 		const before = await count();
@@ -204,34 +248,39 @@ describe('realm routing', { skip: !(WS_TEST_REDIS && WS_TEST_REALM_REDIS && WS_T
 		assert.ok(idle < 30, `${idle} Redis commands in 3 s of idle`);
 	});
 
-	it('registry down since start: unknown realms use the platform; strict refuses them', async () => {
-		await stopGateway();
-		await startGateway({ WSPA_MONGODB: 'mongodb://127.0.0.1:1/none' });
-		const svc = backend(platformRedis, 'ws-test.req.dating');
-		// The first lookups wait for the registry's first (failing) load
-		const first = await connect('dating');
-		first.ws.send('still here');
-		assert.ok(await waitFor(() => first.messages.includes('echo:still here'), 10000), 'platform realm broke without the registry');
-		first.ws.close();
-		svc.stop();
-		// After that, nothing waits on the dead registry
-		const svc2 = backend(platformRedis, 'ws-test.req.new-pages');
+	it('admin slow: allowed on the pushed settings, or refused with WS_ADMIN_CHECK_REQUIRED', async () => {
+		admin.verdict = () => null; // never answers
 		const started = Date.now();
-		const { ws, messages } = await connect('new-pages');
-		ws.send('quick');
-		assert.ok(await waitFor(() => messages.includes('echo:quick')), 'unknown realm on the platform');
-		assert.ok(Date.now() - started < 3000, `${Date.now() - started} ms: waited on the dead registry`);
-		ws.close();
-		svc2.stop();
+		assert.ok(await echoes('chat', 'app.acme.chat.req', realmRedis, { 'ws-tenant': 'acme' }), 'allowed after the check timed out');
+		assert.ok(Date.now() - started < 4500, 'check timeout honoured');
 
 		await stopGateway();
-		await startGateway({ WS_REALMS_STRICT: 'true', WSPA_MONGODB: 'mongodb://127.0.0.1:1/none' });
-		const { ws: unknown } = await connect('nobody');
-		assert.match((await closedWith(unknown, 8000)).reason, /registry unavailable/);
+		await startGateway({ WS_ADMIN_CHECK_REQUIRED: 'true', WS_ADMIN_CHECK_TIMEOUT: '300ms' });
+		const { ws } = await connect('chat', { 'ws-tenant': 'acme' });
+		assert.match((await closedWith(ws)).reason, /registry unavailable/);
+		admin.verdict = () => ({ allow: true });
+	});
+
+	it('admin down since start: unknown realms use the platform (hosted); agents refuse them', async () => {
+		await stopGateway();
+		await startGateway({ WSPA_URL: 'ws://127.0.0.1:1/agent/v1' });
+		assert.ok(await echoes('dating', 'ws-test.req.dating', platformRedis), 'platform realm broke without admin');
 
 		await stopGateway();
-		await startGateway({ WS_REALMS_STRICT: 'true' });
-		const { ws: stranger } = await connect('nobody');
-		assert.match((await closedWith(stranger)).reason, /Unknown realm/);
+		await startGateway({ WS_MODE: 'agent', WSPA_URL: 'ws://127.0.0.1:1/agent/v1' });
+		const { ws } = await connect('dating');
+		assert.match((await closedWith(ws, 8000)).reason, /Unknown realm|unavailable/);
+	});
+
+	it('agent mode: registered realms only, broker credentials from a local file', async () => {
+		const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wsp-')), 'local.json');
+		fs.writeFileSync(file, JSON.stringify({ 'local-pw': { secrets: { password: realmPassword } } }));
+		admin.realms.set('local-pw', realm('local-pw', { secrets: {} })); // admin doesn't have the password
+		await stopGateway();
+		await startGateway({ WS_MODE: 'agent', WS_LOCAL_REALMS_FILE: file });
+
+		assert.ok(await echoes('local-pw', 'app.acme.local-pw.req', realmRedis, { 'ws-tenant': 'acme' }), 'local password used');
+		const { ws } = await connect('dating');
+		assert.match((await closedWith(ws)).reason, /Unknown realm/, 'no platform Redis in agent mode');
 	});
 });

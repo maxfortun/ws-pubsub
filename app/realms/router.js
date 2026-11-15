@@ -3,7 +3,7 @@ const debug = Debug('ws-pubsub:realms:router');
 
 import RedisStreams from '../pubsub/RedisStreams.js';
 import { renderTemplate } from './topics.js';
-import { RegistryUnavailable } from './registry.js';
+import { RegistryUnavailable } from './admin-registry.js';
 
 /** Refusal with a WebSocket close code and a client-safe reason */
 export class RouteError extends Error {
@@ -44,9 +44,11 @@ function redisOptions(realm, secrets) {
  * or throws RouteError.
  *
  * Without a registry every realm uses the platform. With one, realms not
- * registered in it use the platform unless strict.
+ * registered in it use the platform unless strict (or there is no
+ * platform: agent mode). Connections to registered realms are also
+ * confirmed with admin (registry.check).
  *
- * options: registry (or null), platform (RedisStreams), strict,
+ * options: registry (or null), platform (RedisStreams, or null), strict,
  *   allowedOrigins (for platform realms), env, gatewayId, group,
  *   consumer, responseTtl, onReply(data)
  */
@@ -101,6 +103,9 @@ export function createRouter(options) {
 	};
 
 	const platformRoute = (realmId, origin) => {
+		if(!platform) {
+			throw new RouteError(1008, 'Unknown realm');
+		}
 		if(allowedOrigins.length && !allowedOrigins.includes(origin)) {
 			throw new RouteError(1008, 'Origin not allowed');
 		}
@@ -108,7 +113,7 @@ export function createRouter(options) {
 	};
 
 	return {
-		async route(realmId, { origin, headers }) {
+		async route(realmId, { origin, headers, conn = {} }) {
 			if(!registry) {
 				return platformRoute(realmId, origin);
 			}
@@ -121,14 +126,14 @@ export function createRouter(options) {
 				// registered is never sent elsewhere. Not known to be
 				// registered (or no id list loaded yet): as without a
 				// registry, unless strict.
-				if(err instanceof RegistryUnavailable && err.registered !== true && !strict) {
+				if(err instanceof RegistryUnavailable && err.registered !== true && !strict && platform) {
 					debug('registry unavailable, platform for', realmId);
 					return platformRoute(realmId, origin);
 				}
 				throw new RouteError(1011, 'Realm registry unavailable, try again');
 			}
 			if(!entry) {
-				if(strict) {
+				if(strict || !platform) {
 					throw new RouteError(1008, 'Unknown realm');
 				}
 				return platformRoute(realmId, origin);
@@ -155,6 +160,17 @@ export function createRouter(options) {
 				replyTopic = renderTemplate(realm.topics.reply, ctx);
 			} catch(err) {
 				throw new RouteError(1008, err.message);
+			}
+
+			// Admin has the last word on each connection
+			if(registry.check) {
+				const verdict = await registry.check(realm.id, { origin, headers, ip: conn.ip, user_agent: conn.user_agent });
+				if(!verdict.allow) {
+					throw new RouteError(verdict.code || 1008, verdict.reason || 'Refused');
+				}
+				if(verdict.unchecked) {
+					debug('admin unreachable, allowed on local settings:', realm.id);
+				}
 			}
 
 			const t = transportFor(realm, secrets);
