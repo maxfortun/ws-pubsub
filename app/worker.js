@@ -11,6 +11,34 @@ import handlers from './handlers/index.js';
 
 const sockets = {};
 
+const header = (req, name) => {
+	const value = req.headers[name];
+	return typeof value === 'string' ? value.slice(0, 512) : undefined;
+};
+
+// The client's address: the X-Forwarded-For entry added by the outermost
+// trusted proxy. Entries left of it are whatever the client sent.
+export function clientIp(req, trustedHops) {
+	const forwarded = (header(req, 'x-forwarded-for') || '').split(',').map(s => s.trim()).filter(Boolean);
+	if(trustedHops > 0 && forwarded.length >= trustedHops) {
+		return forwarded[forwarded.length - trustedHops];
+	}
+	return req.socket.remoteAddress;
+}
+
+export function connectionInfo(req, options) {
+	return {
+		ip: clientIp(req, options.trusted_proxy_hops),
+		origin: header(req, 'origin'),
+		user_agent: header(req, 'user-agent'),
+		accept_language: header(req, 'accept-language'),
+		// Global Privacy Control: a legally binding opt-out in some places (CPRA)
+		gpc: header(req, 'sec-gpc') === '1',
+		ua_mobile: header(req, 'sec-ch-ua-mobile'),
+		ua_platform: header(req, 'sec-ch-ua-platform'),
+	};
+}
+
 export default async function worker(workerId) {
 	const host = '0.0.0.0';
 	const port = process.env.PORT || 3000;
@@ -30,13 +58,20 @@ export default async function worker(workerId) {
 
 		debug(workerId, uuid, 'open', Object.keys(sockets).length);
 
+		// Facts about the connection, from the request itself only (never from
+		// subprotocol values, which the client chooses). Sent once, on open.
+		const conn = connectionInfo(req, options);
+
+		if(options.allowed_origins.length && !options.allowed_origins.includes(conn.origin)) {
+			debug(workerId, uuid, 'origin not allowed', conn.origin);
+			delete sockets[uuid];
+			socket.close(1008, 'Origin not allowed');
+			return;
+		}
+
 		socket.custom = {
 			protocols: [],
-			headers: {
-				client_ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-				'user-agent': req.headers['user-agent'],
-				origin: req.headers.origin,
-			}
+			headers: {}
 		};
 
 		if(socket.protocol) {
@@ -119,7 +154,8 @@ export default async function worker(workerId) {
 		});
 
 		publish({
-			addr: { ws: uuid, client_ip: socket.custom.headers.client_ip },
+			addr: { ws: uuid },
+			conn,
 			meta: socket.meta || {},
 			wsctl: 'open'
 		});
