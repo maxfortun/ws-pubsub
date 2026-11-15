@@ -8,6 +8,7 @@ import { atob, rmEmptyValues } from './utils.js';
 import options from './options.js';
 
 import handlers from './handlers/index.js';
+import { createRouter, RouteError } from './realms/router.js';
 
 const sockets = {};
 
@@ -44,6 +45,9 @@ export default async function worker(workerId) {
 	const port = process.env.PORT || 3000;
 	const path = options.ws_path;
 
+	// Replies from realm backends are delivered like platform replies
+	const router = createRouter({ ...options.routing, platform: options.pubSub, onReply: data => deliver(data) });
+
 	const webSocketServer = new WebSocketServer({ 
 		host,
 		port,
@@ -62,33 +66,25 @@ export default async function worker(workerId) {
 		// subprotocol values, which the client chooses). Sent once, on open.
 		const conn = connectionInfo(req, options);
 
-		if(options.allowed_origins.length && !options.allowed_origins.includes(conn.origin)) {
-			debug(workerId, uuid, 'origin not allowed', conn.origin);
-			delete sockets[uuid];
-			socket.close(1008, 'Origin not allowed');
-			return;
-		}
-
 		socket.custom = {
 			protocols: [],
 			headers: {}
 		};
 
-		if(socket.protocol) {
-			// Protocol needs to have a realm specified. We'd need to validate it
-			const rawProtocols = socket.protocol.split(/\s*[,;]\s*/);
-			// debug(workerId, uuid, 'raw protocols', rawProtocols);
-
+		// Subprotocols carry the client's parameters as base64("name: value").
+		// All of them are in the request header; socket.protocol is only the
+		// one the server selected.
+		const offered = req.headers['sec-websocket-protocol'] || socket.protocol;
+		if(offered) {
+			const rawProtocols = offered.split(/\s*[,;]\s*/).filter(Boolean);
 			rawProtocols.forEach(protocol => {
 				try {
 					const decoded = atob(protocol);
-					// debug(workerId, uuid, 'protocol decoded', decoded);
 					const match = decoded.match(/^([^:]+):\s*(.*)$/);
 					if(!match) {
 						socket.custom.protocols.push(protocol);
 						return;
 					}
-					// debug(workerId, uuid, 'protocol match', match);
 					socket.custom.headers[match[1]] = match[2];
 				} catch(e) {
 					debug(workerId, uuid, 'protocol error', protocol, e);
@@ -98,53 +94,66 @@ export default async function worker(workerId) {
 
 		debug(workerId, uuid, 'custom', socket.custom);
 
-		const getValidRealm = socket => {
-			const realm = socket.custom.headers['ws-realm'];
-
-			if(!realm) {
-				socket.send(JSON.stringify({ error: 'Missing realm' }));
-				return null;
-			}
-
-			// Integrate realm provisioning and check in db if realm is allowed
-			/*
-			if(!isRealmAuthorized(socket, realm)) {
-				socket.send(JSON.stringify({ error: 'Unauthorized realm', realm }));
-				return null;
-			}
-			*/
-
-			return realm;
-		};
-
-		const realm = getValidRealm(socket);
-
+		const realm = socket.custom.headers['ws-realm'];
 		if(!realm) {
+			socket.send(JSON.stringify({ error: 'Missing realm' }));
+			delete sockets[uuid];
 			socket.close(1008, 'Policy Violation');
 			return;
 		}
 
-		const publish = message => {
-			// const sanitized = rmEmptyValues(message);
-			options.pubSub.publish(realm, message);
+		// Header names are case-insensitive; topic templates use lower case
+		const headers = Object.fromEntries(Object.entries(socket.custom.headers).map(([k, v]) => [k.toLowerCase(), v]));
+
+		// Routing may need a registry lookup: queue messages until it's done
+		const routed = router.route(realm, { origin: conn.origin, headers });
+		let route = null;
+		let refused = false;
+		routed.then(r => { route = r; }, err => {
+			refused = true;
+			debug(workerId, uuid, 'refused', realm, err.message);
+			delete sockets[uuid];
+			socket.close(err instanceof RouteError ? err.code : 1011, err instanceof RouteError ? err.message : 'Internal error');
+		});
+
+		const publish = async message => {
+			try {
+				const r = route || await routed;
+				await r.publish(message);
+			} catch(err) {
+				if(!refused) debug(workerId, uuid, 'publish failed', err.message || err);
+			}
 		};
 
 		socket.on('close', event => {
 			delete sockets[uuid];
 			debug(workerId, uuid, 'close', Object.keys(sockets).length, event);
+			if(refused) return;
 			publish({
 				addr: { ws: uuid },
 				meta: socket.meta || {},
 				wsctl: 'close'
-			});
+			}).finally(() => route?.release());
 		});
 
 		socket.on('error', event => {
 			debug(workerId, uuid, 'error', event);
 		});
 
-		// Maybe add crypto key to socket addr to prevent spoofing?
-		socket.on('message', (message, isBinary) => {
+		socket.on('message', async (message, isBinary) => {
+			const r = route || await routed.catch(() => null);
+			if(!r) return;
+			const limits = r.limits;
+			if(limits) {
+				if(isBinary && !limits.allow_binary) {
+					socket.send(JSON.stringify({ error: 'Binary messages are not allowed in this realm' }));
+					return;
+				}
+				if(message.length > limits.max_message_bytes) {
+					socket.send(JSON.stringify({ error: 'Message too large', max_bytes: limits.max_message_bytes }));
+					return;
+				}
+			}
 			publish({
 				addr: { ws: uuid },
 				meta: socket.meta || {},
@@ -161,7 +170,7 @@ export default async function worker(workerId) {
 		});
 	});
 
-	options.pubSub.subscribe(data => {
+	function deliver(data) {
 		const socket = sockets[data?.addr?.ws];
 		if(!socket) {
 			return;
@@ -181,6 +190,7 @@ export default async function worker(workerId) {
 				debug(workerId, data.addr.wsctl, 'Unknown socket control:', data.wsctl);
 			}
 		}
-	});
+	}
+	options.pubSub.subscribe(deliver);
 }
 
